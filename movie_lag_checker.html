@@ -343,6 +343,15 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const getFpsRef = () => Number(fpsSel.value || 240);
 
+  function stopStepPlay(){
+    if(stepTimer){
+      clearInterval(stepTimer);
+      stepTimer = null;
+    }
+    // ボタン表示を元に戻す
+    stepPlay.textContent = "▶ 1秒に1コマ";
+  }
+
   function fmtTime(sec){
     if(sec == null || !Number.isFinite(sec)) return "—";
     sec = Math.max(0, sec);
