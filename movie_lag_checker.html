@@ -151,7 +151,7 @@
       <div class="video-shell" style="width:100%;">
         <div class="stage-wrap">
           <div id="stage" class="stage">
-            <video id="video" playsinline muted></video>
+            <video id="video" playsinline muted preload="auto"></video>
             <div id="focusRect" class="focus-rect crosshair"></div>
           </div>
         </div>
@@ -712,7 +712,7 @@
   }
 
   // ---- events
-  file.addEventListener("change", () => {
+  file.addEventListener("change", async () => {
     stopStepPlay();
     inputMark = null;
     outputMark = null;
@@ -729,9 +729,29 @@
     const f = file.files?.[0];
     if(!f) return;
 
+    // 以前のblobを破棄（メモリ節約）
+    if(video.src && video.src.startsWith("blob:")){
+      try { URL.revokeObjectURL(video.src); } catch {}
+    }
+
     const url = URL.createObjectURL(f);
+
+    // iOSで「loadだけだと動かない」対策：play→pauseで読み込みを開始させる
     video.src = url;
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
     video.load();
+
+    try{
+      await video.play();   // ユーザー操作直後なので再生が通りやすい
+      video.pause();
+      // 先頭の静止画を出したいならここで0に戻す
+      video.currentTime = 0;
+    } catch (e){
+      // 再生がブロックされても、ここで落とさない
+      console.log("prime play failed:", e);
+    }
   });
 
   video.addEventListener("loadedmetadata", () => {
@@ -756,6 +776,13 @@
 
     startRvfc();
     updateMagUI();
+  });
+
+  video.addEventListener("error", () => {
+    const err = video.error;
+    // code: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+    alert(`動画の読み込みに失敗しました（error code: ${err?.code ?? "?"}）\n` +
+          `別形式（H.264 mp4等）に変換すると再生できることがあります。`);
   });
 
   seek.addEventListener("input", async () => {
@@ -916,4 +943,3 @@
 </script>
 </body>
 </html>
-
