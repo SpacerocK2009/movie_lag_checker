@@ -623,12 +623,14 @@
   }
 
   // ---- stepping (VFRでも「次の表示フレーム」を探す)
-  async function stepAdjacent(direction){
+  async function stepAdjacent(direction, fromAuto = false){
     if(busy) return;
     busy = true;
 
     try{
-      stopStepPlay();
+      // ★手動操作のときだけ自動再生を止める（←ここがポイント）
+      if(!fromAuto) stopStepPlay();
+
       video.pause();
 
       const startMT = (curMediaTime ?? video.currentTime);
@@ -637,14 +639,11 @@
       const d = Number.isFinite(video.duration) ? video.duration : 0;
       if(!d) return;
 
-      // iOSのシーク粒度に負けないように「指数的に」増やす
-      // 参考fpsはあくまで初期値の目安に使う
-      let delta = (1 / getFpsRef()) * 0.6;  // 秒（例: 240fpsなら約2.5msから開始）
+      let delta = (1 / getFpsRef()) * 0.6; // 初期シーク幅（参考fpsから適当に）
       let changed = false;
 
       for(let i=0; i<18; i++){
         const target = clamp(startCT + direction * delta, 0, d);
-
         await seekTo(target);
 
         const mt = (curMediaTime ?? video.currentTime);
@@ -652,7 +651,7 @@
         if(Number.isFinite(mt) && Math.abs(mt - startMT) > 1e-9){
           changed = true;
 
-          // コマ送りで進んだ“実フレーム間隔”をVFR統計へ
+          // VFR統計（コマ送り時のΔms）
           const dtMs = Math.abs((mt - startMT) * 1000);
           if(Number.isFinite(dtMs) && dtMs > 0){
             vfr.min = Math.min(vfr.min, dtMs);
@@ -662,14 +661,12 @@
           }
           break;
         }
-
-        // 進まなければさらに大きく
-        delta *= 1.7;
+        delta *= 1.7; // 進まなければ増やす
       }
 
-      // どうしても変わらない場合の最後の一手（大きめに動かす）
       if(!changed){
-        const fallback = clamp(startCT + direction * 0.05, 0, d); // 50ms
+        // 最後の一手（50ms）
+        const fallback = clamp(startCT + direction * 0.05, 0, d);
         await seekTo(fallback);
       }
 
@@ -833,7 +830,7 @@
     }
     video.pause();
     stepPlay.textContent = "■ 1秒に1コマ（停止）";
-    stepTimer = setInterval(() => stepAdjacent(+1), 1000);
+    stepTimer = setInterval(() => stepAdjacent(+1, true), 1000);
   });
 
   markInput.addEventListener("click", () => {
