@@ -2,66 +2,166 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-  <title>SF6 入力→表示 ラグ計測（VFR対応 / mediaTime）</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>SF6 入力→表示 ラグ計測（VFR対応 / mediaTimeで計算）</title>
   <style>
-    :root { color-scheme: dark; }
-    body { margin:0; background:#0b0f14; color:#e8eef7; font-family: system-ui,-apple-system,"Segoe UI",sans-serif; }
-    .wrap { max-width: 1180px; margin:0 auto; padding: 14px; }
-    h1 { font-size: 18px; margin: 0 0 10px; }
-    .panel { background:#121824; border:1px solid #223049; border-radius:14px; padding: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
-    .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
-    .row + .row { margin-top: 10px; }
-    label { font-size: 12px; opacity:.9; }
-    select, input[type="file"], button, input[type="range"], input[type="text"]{
-      background:#0d1320; border:1px solid #2a3a5c; color:#e8eef7;
-      border-radius: 12px; padding: 10px 12px; font-size: 14px;
+    :root {
+      --bg: #05070d;
+      --panel: rgba(18, 26, 40, 0.86);
+      --panel2: rgba(18, 26, 40, 0.65);
+      --text: #e8eef7;
+      --muted: rgba(232,238,247,.70);
+      --line: rgba(88, 120, 170, 0.35);
+      --accent: rgba(58,123,213,.95);
+      --danger: rgba(255,107,107,.95);
+      --shadow: 0 10px 30px rgba(0,0,0,.45);
     }
-    button { cursor:pointer; }
-    button:disabled { opacity:.5; cursor:not-allowed; }
-    .pill { display:flex; gap:8px; align-items:center; padding: 8px 10px; border-radius: 999px; border:1px solid #2a3a5c; background:#0d1320; }
-    .accent { border-color:#3a7bd5; }
-    .warn { font-size: 12px; opacity:.85; line-height: 1.45; }
-    .grid { display:grid; grid-template-columns: 1.2fr .8fr; gap: 10px; }
-    @media (max-width: 980px){ .grid{ grid-template-columns:1fr; } }
-    .box { border:1px solid #223049; background:#0d1320; border-radius: 14px; padding: 10px; }
-    .k { font-size: 12px; opacity:.85; }
-    .v { font-size: 15px; margin-top: 4px; font-variant-numeric: tabular-nums; }
-    .video-shell { display:flex; justify-content:center; background:#070a10; border:1px solid #223049; border-radius:14px; padding: 10px; }
-    .stage-wrap { position: relative; width: 100%; display:flex; justify-content:center; align-items:center; overflow:hidden; }
+    html, body { height: 100%; background: radial-gradient(1200px 800px at 20% 10%, #0e1a2f 0%, #05070d 60%); color: var(--text); margin: 0; font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif; }
+    * { box-sizing: border-box; }
+    h1 { font-size: 18px; margin: 0 0 10px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 14px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 14px; padding-bottom: 40px; }
+    .row { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .row + .row { margin-top: 10px; }
+    .pill { display:flex; align-items:center; gap:8px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); }
+    .pill label { font-size: 12px; color: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .muted { color: var(--muted); font-size: 12px; }
+    button, input[type="file"]::file-selector-button {
+      border: 1px solid var(--line);
+      background: rgba(18, 26, 40, 0.55);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 12px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform .04s ease, background .12s ease, border-color .12s ease;
+      user-select:none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button:hover { background: rgba(18, 26, 40, 0.75); border-color: rgba(88,120,170,.55); }
+    button:active { transform: scale(0.99); }
+    button.accent { border-color: rgba(58,123,213,.75); background: rgba(58,123,213,.22); }
+    button.danger { border-color: rgba(255,107,107,.75); background: rgba(255,107,107,.18); }
+    button.mini { padding: 8px 10px; font-size: 13px; border-radius: 12px; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; transform:none; }
+    select, input[type="range"]{
+      accent-color: var(--accent);
+    }
+    select{
+      border: 1px solid var(--line);
+      background: rgba(18, 26, 40, 0.55);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+
+    .video-shell {
+      width: 100%;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(0,0,0,.25);
+      overflow:hidden;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
+    }
+    .stage-wrap{
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      width:100%;
+      min-height: 220px;
+      padding: 14px;
+    }
     .stage {
       position: relative;
-      transform-origin: center center;
-      touch-action: none; /* ドラッグ・タップ操作用 */
-      user-select: none;
+      max-width: 100%;
+      max-height: 70vh;
+      border-radius: 14px;
+      overflow:hidden;
+      background: #000;
+      touch-action: none;
     }
-    video {
+    video{
       display:block;
       max-width: 100%;
-      max-height: 60vh;
-      border-radius: 12px;
-      background:#000;
+      max-height: 70vh;
+      background: #000;
     }
+
     .focus-rect {
       position:absolute;
-      border:2px solid rgba(58,123,213,.95);
+      border:2px solid;
       border-radius: 10px;
       box-shadow: 0 0 0 9999px rgba(0,0,0,.10) inset;
       pointer-events: none;
+      opacity: .70;
     }
+    .focus-rect.active { opacity: 1.0; }
+    .focus-a { border-color: rgba(58,123,213,.95); }
+    .focus-b { border-color: rgba(255,107,107,.95); }
+
     .crosshair::before, .crosshair::after{
       content:"";
       position:absolute;
       background: rgba(232,238,247,.85);
-      pointer-events:none;
+      opacity:.65;
     }
-    .crosshair::before{ width: 1px; top:-10px; bottom:-10px; left:50%; transform: translateX(-0.5px); }
-    .crosshair::after { height: 1px; left:-10px; right:-10px; top:50%; transform: translateY(-0.5px); }
+    .crosshair::before{ left: 50%; top: 6px; width: 2px; height: calc(100% - 12px); transform: translateX(-1px); border-radius: 2px; }
+    .crosshair::after{ top: 50%; left: 6px; height: 2px; width: calc(100% - 12px); transform: translateY(-1px); border-radius: 2px; }
 
+    .bar{
+      display:flex; align-items:center; gap:10px; padding: 10px 12px;
+      border-top: 1px solid var(--line);
+      background: rgba(18,26,40,.35);
+    }
+    .bar input[type="range"]{ width: 100%; }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    @media (max-width: 880px){
+      .grid{ grid-template-columns: 1fr; }
+    }
+
+    .list{
+      max-height: 210px;
+      overflow:auto;
+      padding-right: 6px;
+    }
+    .item{
+      border: 1px solid var(--line);
+      background: rgba(18,26,40,.35);
+      border-radius: 14px;
+      padding: 10px;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    .item:hover{ border-color: rgba(88,120,170,.55); }
+    .item .top{ display:flex; justify-content:space-between; gap:10px; align-items:center; }
+    .badge{
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .badge.input{ border-color: rgba(58,123,213,.75); color: rgba(58,123,213,1); background: rgba(58,123,213,.10); }
+    .badge.output{ border-color: rgba(255,107,107,.75); color: rgba(255,107,107,1); background: rgba(255,107,107,.08); }
+
+    .hint{
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+
+    /* ---- magnifiers (2) */
     .mag {
       position: fixed;
-      right: 10px;
-      bottom: 10px;
       width: 220px;
       height: 220px;
       background:#070a10;
@@ -70,198 +170,217 @@
       overflow:hidden;
       box-shadow: 0 8px 26px rgba(0,0,0,.35);
       z-index: 9999;
+      touch-action: none;
     }
+    .mag.mag-a.active { border-color: rgba(58,123,213,.95); }
+    .mag.mag-b.active { border-color: rgba(255,107,107,.95); }
+
     .mag header{
-      display:flex; justify-content:space-between; align-items:center;
-      padding: 6px 8px; font-size: 12px; opacity:.9;
-      background:#0d1320; border-bottom:1px solid #223049;
-    }
-    .mag canvas{ display:block; width:100%; height: calc(100% - 30px); }
-    .list {
-      max-height: 240px;
-      overflow:auto;
-      border-radius: 12px;
-      border:1px solid #223049;
-    }
-    .item {
       display:flex;
-      gap:10px;
       align-items:center;
-      padding: 8px 10px;
-      border-bottom:1px solid rgba(34,48,73,.6);
-      cursor:pointer;
+      gap: 8px;
+      padding: 6px 8px;
+      font-size: 12px;
+      opacity:.95;
+      background:#0d1320;
+      border-bottom:1px solid #223049;
+      user-select: none;
+      cursor: move;          /* ドラッグで移動 */
+      touch-action: none;
     }
-    .item:last-child{ border-bottom:none; }
-    .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; border:1px solid #2a3a5c; background:#0b0f14; }
-    .muted { opacity:.8; font-size: 12px; }
-    .mono { font-variant-numeric: tabular-nums; }
-    .split { display:flex; gap:10px; flex-wrap:wrap; }
-    .mini { padding: 8px 10px; font-size: 13px; border-radius: 12px; }
-    .kbd { font-size: 12px; opacity:.85; line-height: 1.5; }
+    .magTitle{ font-weight: 600; }
+    .magBtns{ margin-left: auto; display:flex; gap: 6px; align-items:center; }
+    .mag header button{ padding: 4px 8px; font-size: 12px; border-radius: 10px; }
+    .mag canvas{ display:block; width:100%; height: calc(100% - 30px); }
   </style>
 </head>
+
 <body>
-<div class="wrap">
-  <h1>SF6 入力→表示 ラグ計測（VFR対応 / mediaTimeで計算）</h1>
+  <div class="wrap">
+    <div class="panel">
+      <h1>SF6 入力→表示 ラグ計測（VFR対応 / mediaTimeで計算）</h1>
 
-  <div class="panel">
+      <div class="row">
+        <div class="pill">
+          <label>動画</label>
+          <input id="file" type="file" accept="video/*" />
+        </div>
 
-    <div class="row">
-      <input id="file" type="file" accept="video/*" />
+        <div class="pill">
+          <label for="fps">参考FPS</label>
+          <select id="fps">
+            <option>24</option><option>30</option><option>60</option><option>120</option><option selected>240</option>
+          </select>
+        </div>
 
-      <div class="pill">
-        <label for="fps">参考FPS</label>
-        <select id="fps">
-          <option value="24">24</option>
-          <option value="30">30</option>
-          <option value="60">60</option>
-          <option value="120">120</option>
-          <option value="240" selected>240</option>
-        </select>
+        <div class="pill">
+          <label for="zoom">表示ズーム</label>
+          <input id="zoom" type="range" min="0.5" max="2.0" step="0.01" value="1.00" />
+          <span id="zoomVal" class="mono">1.00x</span>
+        </div>
+
+        <button id="rotL" class="mini" title="左に90°回転">↺ 回転</button>
+        <button id="rotR" class="mini" title="右に90°回転">↻ 回転</button>
+
+        <div class="pill">
+          <label for="magOn">拡大窓</label>
+          <input id="magOn" type="checkbox" checked />
+        </div>
+
+        <div class="pill">
+          <label for="magZoom">拡大倍率</label>
+          <input id="magZoom" type="range" min="1" max="8" step="0.1" value="4" />
+          <span id="magZoomVal" class="mono">4.0x</span>
+        </div>
+
+        <div class="pill">
+          <label for="magSize">拡大範囲</label>
+          <input id="magSize" type="range" min="60" max="260" step="2" value="140" />
+          <span id="magSizeVal" class="mono">140px</span>
+        </div>
+
+        <div class="pill">
+          <label>位置選択</label>
+          <button id="pickA" class="mini accent" type="button">A:ボタン</button>
+          <button id="pickB" class="mini" type="button">B:表示</button>
+          <span id="pickHint" class="muted">→ 動画をタップで移動</span>
+        </div>
       </div>
 
-      <div class="pill">
-        <label for="zoom">表示ズーム</label>
-        <input id="zoom" type="range" min="0.6" max="2.0" step="0.01" value="1.0" />
-        <span id="zoomVal" class="mono">1.00x</span>
-      </div>
+      <div class="row">
+        <div class="video-shell" style="width:100%;">
+          <div class="stage-wrap">
+            <div id="stage" class="stage">
+              <video id="video" playsinline muted preload="auto"></video>
+              <div id="focusRectA" class="focus-rect crosshair focus-a"></div>
+              <div id="focusRectB" class="focus-rect crosshair focus-b"></div>
+            </div>
+          </div>
 
-      <button id="rotL" class="mini" title="左に90°回転">↺ 回転</button>
-      <button id="rotR" class="mini" title="右に90°回転">↻ 回転</button>
+          <div class="bar">
+            <button id="toStart">⏮ 先頭</button>
+            <button id="stepBack">◀ 1コマ戻る</button>
+            <button id="stepPlay" class="accent">▶ 1秒に1コマ</button>
+            <button id="pauseBtn">⏸ 停止</button>
+            <button id="stepFwd">1コマ進む ▶</button>
+            <button id="toEnd">末尾 ⏭</button>
 
-      <div class="pill">
-        <label for="magOn">拡大窓</label>
-        <input id="magOn" type="checkbox" checked />
-      </div>
-
-      <div class="pill">
-        <label for="magZoom">拡大倍率</label>
-        <input id="magZoom" type="range" min="1" max="8" step="0.1" value="4" />
-        <span id="magZoomVal" class="mono">4.0x</span>
-      </div>
-
-      <div class="pill">
-        <label for="magSize">拡大範囲</label>
-        <input id="magSize" type="range" min="60" max="260" step="2" value="140" />
-        <span id="magSizeVal" class="mono">140px</span>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="video-shell" style="width:100%;">
-        <div class="stage-wrap">
-          <div id="stage" class="stage">
-            <video id="video" playsinline muted preload="auto"></video>
-            <div id="focusRect" class="focus-rect crosshair"></div>
+            <div class="pill" style="flex:1; min-width: 220px;">
+              <label>シーク</label>
+              <input id="seek" type="range" min="0" max="1" step="0.001" value="0" />
+              <span class="mono" id="seekNow">0:00.000</span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <div class="row">
-      <button id="toStart">⏮ 先頭</button>
-      <button id="stepBack">◀ 1コマ戻る</button>
-      <button id="stepPlay" class="accent">▶ 1秒に1コマ</button>
-      <button id="pause">⏸ 停止</button>
-      <button id="stepFwd">1コマ進む ▶</button>
-      <button id="toEnd">末尾 ⏭</button>
-
-      <div class="pill" style="flex:1; min-width: 260px;">
-        <label for="seek">シーク（currentTime）</label>
-        <input id="seek" type="range" min="0" max="0" step="0.001" value="0" style="width:100%;" />
+      <div class="row">
+        <div class="pill">
+          <label>表示中フレーム</label>
+          <span class="mono">mediaTime:</span>
+          <span id="mtNow" class="mono">—</span>
+        </div>
+        <div class="pill">
+          <label>位置</label>
+          <span class="mono">currentTime:</span>
+          <span id="ctNow" class="mono">—</span>
+        </div>
       </div>
 
-      <div class="pill">
-        <label>表示中フレーム</label>
-        <span id="nowMedia" class="mono">mediaTime: —</span>
-      </div>
-
-      <div class="pill">
-        <label>位置</label>
-        <span id="nowCT" class="mono">currentTime: —</span>
-      </div>
-    </div>
-
-    <div class="row" style="justify-content:space-between;">
-      <div class="split">
+      <div class="row">
         <button id="markInput" class="accent">入力を記録</button>
-        <button id="markOutput" class="accent">表示反映を記録</button>
+        <button id="markOutput" class="danger">表示反映を記録</button>
         <button id="clearCurrent">現在値クリア</button>
-
         <button id="prevMarker">← 前のマーカー</button>
         <button id="nextMarker">次のマーカー →</button>
-
         <button id="copyCurrent">現在の結果をコピー</button>
         <button id="resetVfr">VFR統計リセット</button>
       </div>
 
-      <div class="kbd">
-        ショートカット：←/→=コマ送り　I=入力記録　O=反映記録　J/K=前/次マーカー　Space=1秒に1コマON/OFF
-      </div>
-    </div>
+      <div class="grid">
+        <div class="panel" style="padding:12px;">
+          <div class="row" style="justify-content: space-between;">
+            <div>
+              <div class="muted">現在の記録（最後に押した値が正）</div>
+              <div id="currentSummary" class="mono" style="margin-top:6px; font-size: 14px; line-height:1.6;"></div>
+            </div>
+            <div style="text-align:right;">
+              <div class="muted">このアプリの前提</div>
+              <div class="hint">
+                iPhoneの高fps動画はVFRになりやすいので、固定FPS前提の「フレ差×(1000/FPS)」はしません。<br/>
+                代わりに requestVideoFrameCallback の mediaTime（秒）で差分を計算します。
+              </div>
+            </div>
+          </div>
 
-    <div class="grid">
-      <div class="box">
-        <div class="k">現在の記録（最後に押した値が正）</div>
-        <div class="v" id="currentSummary">未記録</div>
-        <div class="warn" style="margin-top:8px;">
-          差分は <span class="mono">(displayTime - inputTime) * 1000</span>（ms）。FPSは参考表示のみです。
+          <div class="row" style="margin-top: 8px;">
+            <div class="pill">
+              <label>VFR揺れ（コマ送り時Δms）</label>
+              <span id="vfrDisp" class="mono">—</span>
+            </div>
+            <div class="pill">
+              <label>参考：1フレms</label>
+              <span id="refFrameMs" class="mono">—</span>
+            </div>
+            <div class="pill">
+              <label>参考：差分フレ</label>
+              <span id="refFrames" class="mono">—</span>
+            </div>
+          </div>
         </div>
 
-        <div class="row" style="margin-top:10px;">
-          <div class="pill">
-            <label>VFR揺れ（コマ送り時Δms）</label>
-            <span id="vfrDisp" class="mono">—</span>
-          </div>
-          <div class="pill">
-            <label>参考：1フレms</label>
-            <span id="refFrameMs" class="mono">—</span>
-          </div>
-          <div class="pill">
-            <label>参考：差分フレ</label>
-            <span id="refFrames" class="mono">—</span>
+        <div class="panel" style="padding:12px;">
+          <div class="muted">ショートカット: ←/→=コマ送り　I=入力記録　O=反映記録　J/K=前/次マーカー　Space=1秒に1コマON/OFF</div>
+          <div class="row" style="margin-top: 10px;">
+            <div class="panel" style="padding:10px; flex: 1;">
+              <div class="muted">マーカー履歴（クリックでジャンプ）</div>
+              <div id="markerList" class="list" style="margin-top:8px;"></div>
+            </div>
+            <div class="panel" style="padding:10px; flex: 1;">
+              <div class="muted">測定履歴（入力+反映が揃った瞬間に追加）</div>
+              <div id="measureList" class="list" style="margin-top:8px;"></div>
+            </div>
           </div>
         </div>
-      </div>
-
-      <div class="box">
-        <div class="k">このアプリの前提</div>
-        <div class="warn">
-          iPhoneの高fps動画はVFRになりやすいので、固定FPS前提の「フレ差×(1000/FPS)」はしません。<br/>
-          代わりに <span class="mono">requestVideoFrameCallback()</span> の <span class="mono">mediaTime</span> を使って計測します。
-        </div>
-      </div>
-
-      <div class="box">
-        <div class="k">マーカー履歴（クリックでジャンプ）</div>
-        <div id="markerList" class="list"></div>
-      </div>
-
-      <div class="box">
-        <div class="k">測定履歴（入力＋反映が揃った瞬間に追加）</div>
-        <div id="measureList" class="list"></div>
       </div>
     </div>
   </div>
+
+<!-- 拡大窓（2つ） -->
+<div id="magA" class="mag mag-a" style="display:none; left: 10px; bottom: 10px;">
+  <header id="magHeaderA">
+    <span class="magTitle">A: ボタン押下</span>
+    <span id="magInfoA" class="mono">—</span>
+    <div class="magBtns">
+      <button id="magSetA" type="button" title="Aの拡大位置を選ぶ">位置</button>
+      <button id="magMarkInput" type="button" class="accent" title="入力を記録">入力</button>
+    </div>
+  </header>
+  <canvas id="magCanvasA" width="400" height="400"></canvas>
 </div>
 
-<!-- 拡大窓 -->
-<div id="mag" class="mag" style="display:none;">
-  <header>
-    <span>拡大窓</span>
-    <span id="magInfo" class="mono">—</span>
+<div id="magB" class="mag mag-b" style="display:none; right: 10px; bottom: 10px;">
+  <header id="magHeaderB">
+    <span class="magTitle">B: 画面表示</span>
+    <span id="magInfoB" class="mono">—</span>
+    <div class="magBtns">
+      <button id="magSetB" type="button" title="Bの拡大位置を選ぶ">位置</button>
+      <button id="magMarkOutput" type="button" class="accent" title="表示反映を記録">反映</button>
+    </div>
   </header>
-  <canvas id="magCanvas" width="400" height="400"></canvas>
+  <canvas id="magCanvasB" width="400" height="400"></canvas>
 </div>
 
 <script>
 (() => {
+  // ---- dom
   const $ = (id) => document.getElementById(id);
 
   const file = $("file");
   const video = $("video");
   const stage = $("stage");
-  const focusRect = $("focusRect");
+  const focusRectA = $("focusRectA");
+  const focusRectB = $("focusRectB");
 
   const fpsSel = $("fps");
   const zoom = $("zoom");
@@ -270,25 +389,45 @@
   const rotR = $("rotR");
 
   const magOn = $("magOn");
-  const mag = $("mag");
-  const magCanvas = $("magCanvas");
-  const magCtx = magCanvas.getContext("2d");
-  const magInfo = $("magInfo");
+
+  // 位置選択（どちらの拡大位置を動かすか）
+  const pickA = $("pickA");
+  const pickB = $("pickB");
+  const pickHint = $("pickHint");
+
+  // 拡大窓 A/B
+  const magA = $("magA");
+  const magCanvasA = $("magCanvasA");
+  const magCtxA = magCanvasA.getContext("2d");
+  const magInfoA = $("magInfoA");
+  const magHeaderA = $("magHeaderA");
+  const magSetA = $("magSetA");
+  const magMarkInput = $("magMarkInput");
+
+  const magB = $("magB");
+  const magCanvasB = $("magCanvasB");
+  const magCtxB = magCanvasB.getContext("2d");
+  const magInfoB = $("magInfoB");
+  const magHeaderB = $("magHeaderB");
+  const magSetB = $("magSetB");
+  const magMarkOutput = $("magMarkOutput");
+
   const magZoom = $("magZoom");
   const magZoomVal = $("magZoomVal");
   const magSize = $("magSize");
   const magSizeVal = $("magSizeVal");
 
   const seek = $("seek");
-  const nowMedia = $("nowMedia");
-  const nowCT = $("nowCT");
-
+  const seekNow = $("seekNow");
   const toStart = $("toStart");
   const toEnd = $("toEnd");
   const stepBack = $("stepBack");
   const stepFwd = $("stepFwd");
   const stepPlay = $("stepPlay");
-  const pauseBtn = $("pause");
+  const pauseBtn = $("pauseBtn");
+
+  const mtNow = $("mtNow");
+  const ctNow = $("ctNow");
 
   const markInput = $("markInput");
   const markOutput = $("markOutput");
@@ -310,22 +449,26 @@
 
   // ---- state
   let rotation = 0;         // degrees
-  let viewScale = 1.0;
+  let viewZoom = 1.00;      // stage transform zoom
+  let stageW = 0;           // CSS px (untransformed)
+  let stageH = 0;
 
-  let stageW = 0, stageH = 0; // untransformed stage size (CSS px)
+  // rvfc
   let rvfcId = null;
-  let frameSeq = 0;                 // フレーム更新カウンタ（レース回避の要）
-  let frameWaiters = [];            // { minSeq, resolve, timer }
 
-  let curMeta = null;       // last VideoFrameMetadata
+  // last VideoFrameMetadata
+  let curMeta = null;
   let curMediaTime = null;  // seconds
   let curCurrentTime = null;
 
   let stepTimer = null;
   let busy = false;
+  let magDragInit = false;
 
-  // Focus rect (in stage CSS px, untransformed coordinates)
-  let focus = { x: 0, y: 0, size: 140 };
+  // Focus rects (in stage CSS px, untransformed coordinates)
+  let focusA = { x: 0, y: 0, size: 140 };
+  let focusB = { x: 0, y: 0, size: 140 };
+  let activePick = "A"; // "A" or "B"
 
   // Marks (current)
   let inputMark = null;   // {t: mediaTimeSec, at: Date, kind:'input'}
@@ -343,55 +486,252 @@
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const getFpsRef = () => Number(fpsSel.value || 240);
 
-  function stopStepPlay(){
-    if(stepTimer){
-      clearInterval(stepTimer);
-      stepTimer = null;
-    }
-    // ボタン表示を元に戻す
-    stepPlay.textContent = "▶ 1秒に1コマ";
-  }
-
   function fmtTime(sec){
     if(sec == null || !Number.isFinite(sec)) return "—";
     sec = Math.max(0, sec);
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     const ms = Math.floor((sec - Math.floor(sec)) * 1000);
-    return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}.${String(ms).padStart(3,"0")}`;
+    return `${m}:${String(s).padStart(2,"0")}.${String(ms).padStart(3,"0")}`;
+  }
+
+  function safeUUID(){
+    if (crypto?.randomUUID) return crypto.randomUUID();
+    return "id-" + Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
+  }
+
+  function enableControls(on){
+    const btns = [toStart,toEnd,stepBack,stepFwd,stepPlay,pauseBtn,seek,markInput,markOutput,clearCurrent,prevMarker,nextMarker,copyCurrent,resetVfr];
+    btns.forEach(b => b.disabled = !on);
   }
 
   function updateStageTransform(){
-    stage.style.transform = `rotate(${rotation}deg) scale(${viewScale})`;
+    viewZoom = Number(zoom.value);
+    zoomVal.textContent = `${viewZoom.toFixed(2)}x`;
+
+    const t = `rotate(${rotation}deg) scale(${viewZoom})`;
+    video.style.transformOrigin = "center center";
+    video.style.transform = t;
+
+    // focus rects are in stage coordinates; keep them aligned by applying same transform to video only.
+    // We compute stage<->video mapping with rotation+zoom.
   }
 
-  function updateFocusRect(){
-    focus.size = Number(magSize.value);
-    focusRect.style.width = `${focus.size}px`;
-    focusRect.style.height = `${focus.size}px`;
-    focusRect.style.left = `${focus.x - focus.size/2}px`;
-    focusRect.style.top  = `${focus.y - focus.size/2}px`;
+  function stageToVideoMatrix(){
+    // Map stage (CSS px, untransformed) to video pixel coords.
+    // We use client sizes rather than transformed sizes.
+    const vw = video.videoWidth || 0;
+    const vh = video.videoHeight || 0;
+    if(!vw || !vh || !stageW || !stageH) return null;
+
+    // scale from stage CSS px to video px (before rotation/zoom)
+    const sx = vw / stageW;
+    const sy = vh / stageH;
+
+    return { sx, sy };
+  }
+
+  function clientToStageXY(clientX, clientY){
+    const r = stage.getBoundingClientRect();
+    // stage rect includes padding? stage itself, so okay.
+    const x = clientX - r.left;
+    const y = clientY - r.top;
+    // Undo viewZoom and rotation around center for mapping pointer to "untransformed stage coords"
+    const cx = r.width / 2;
+    const cy = r.height / 2;
+
+    let dx = x - cx;
+    let dy = y - cy;
+
+    // undo scale
+    dx /= viewZoom;
+    dy /= viewZoom;
+
+    // undo rotation
+    const rad = (-rotation) * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const ux = dx*cos - dy*sin;
+    const uy = dx*sin + dy*cos;
+
+    return { x: ux + stageW/2, y: uy + stageH/2 };
+  }
+
+  function stageXYToVideoXY(stageX, stageY){
+    const M = stageToVideoMatrix();
+    if(!M) return null;
+
+    // convert stage coords -> unrotated/unscaled stage coords centered? Stage coords are already in untransformed space.
+    // Just scale to video pixels
+    const x = stageX * M.sx;
+    const y = stageY * M.sy;
+    return { x, y, scale: M.sx }; // assume uniform scale
+  }
+
+  function applyFocusRect(el, f){
+    f.size = Number(magSize.value);
+    el.style.width = `${f.size}px`;
+    el.style.height = `${f.size}px`;
+    el.style.left = `${f.x - f.size/2}px`;
+    el.style.top  = `${f.y - f.size/2}px`;
+  }
+
+  function updateActivePickUI(){
+    const isA = activePick === "A";
+    pickA.classList.toggle("accent", isA);
+    pickB.classList.toggle("accent", !isA);
+
+    focusRectA.classList.toggle("active", isA);
+    focusRectB.classList.toggle("active", !isA);
+
+    magA.classList.toggle("active", isA);
+    magB.classList.toggle("active", !isA);
+  }
+
+  function updateFocusRects(){
+    applyFocusRect(focusRectA, focusA);
+    applyFocusRect(focusRectB, focusB);
+    updateActivePickUI();
   }
 
   function updateMagUI(){
     magZoomVal.textContent = `${Number(magZoom.value).toFixed(1)}x`;
     magSizeVal.textContent = `${Number(magSize.value)}px`;
-    mag.style.display = magOn.checked ? "" : "none";
+
+    const on = magOn.checked;
+    const hasVideo = !!video.videoWidth && !!video.videoHeight && !!stageW && !!stageH;
+
+    // 拡大窓の表示/非表示（動画が読み込まれるまでは隠す）
+    magA.style.display = (on && hasVideo) ? "" : "none";
+    magB.style.display = (on && hasVideo) ? "" : "none";
+
+    // フォーカス枠も連動
+    focusRectA.style.display = (on && hasVideo) ? "" : "none";
+    focusRectB.style.display = (on && hasVideo) ? "" : "none";
+
+    updateFocusRects();
   }
 
   function updateSeekMax(){
-    const d = Number.isFinite(video.duration) ? video.duration : 0;
-    seek.max = String(d);
+    const d = video.duration;
+    if(Number.isFinite(d) && d > 0){
+      seek.max = d;
+      seek.step = 0.001;
+    }else{
+      seek.max = 1;
+    }
   }
 
-  function enableControls(enabled){
-    [
-      toStart,toEnd,stepBack,stepFwd,stepPlay,pauseBtn,
-      markInput,markOutput,clearCurrent,prevMarker,nextMarker,
-      seek,copyCurrent,resetVfr,rotL,rotR,zoom,fpsSel,
-      magOn,magZoom,magSize
-    ].forEach(el => el.disabled = !enabled);
+  function updateSeekNow(){
+    const t = video.currentTime || 0;
+    seek.value = t;
+    seekNow.textContent = fmtTime(t);
   }
+
+  function updateNowLabels(){
+    mtNow.textContent = fmtTime(curMediaTime);
+    ctNow.textContent = fmtTime(curCurrentTime);
+  }
+
+  function updateVfrDisp(){
+    if(vfr.n <= 0 || !Number.isFinite(vfr.min) || !Number.isFinite(vfr.max)){
+      vfrDisp.textContent = "—";
+    }else{
+      const avg = vfr.sum / vfr.n;
+      vfrDisp.textContent = `min ${vfr.min.toFixed(2)} / max ${vfr.max.toFixed(2)} / avg ${avg.toFixed(2)} ms (n=${vfr.n})`;
+    }
+
+    const fps = getFpsRef();
+    const ms = 1000 / fps;
+    refFrameMs.textContent = `${ms.toFixed(3)} ms`;
+    if(inputMark && outputMark){
+      const delta = (outputMark.t - inputMark.t) * 1000;
+      refFrames.textContent = `${(delta/ms).toFixed(2)} f`;
+    }else{
+      refFrames.textContent = "—";
+    }
+  }
+
+  function updateCurrentSummary(){
+    let html = "";
+    if(!inputMark) html += `入力: <b>未記録</b><br/>`;
+    else html += `入力: <b>${fmtTime(inputMark.t)}</b><br/>`;
+    if(!outputMark) html += `反映: <b>未記録</b><br/>`;
+    else html += `反映: <b>${fmtTime(outputMark.t)}</b><br/>`;
+
+    if(inputMark && outputMark){
+      const deltaMs = (outputMark.t - inputMark.t) * 1000;
+      html += `差分: <b>${deltaMs.toFixed(2)} ms</b>（FPSは参考表示のみです）<br/>`;
+    }else{
+      html += `差分: <b>—</b><br/>`;
+    }
+    currentSummary.innerHTML = html;
+    updateVfrDisp();
+  }
+
+  function renderMarkers(){
+    markerList.innerHTML = "";
+    if(!markers.length){
+      markerList.innerHTML = `<div class="muted">まだマーカーがありません</div>`;
+      return;
+    }
+
+    markers.slice().reverse().forEach((m, idxRev) => {
+      const idx = markers.length - 1 - idxRev;
+      const el = document.createElement("div");
+      el.className = "item";
+      el.innerHTML = `
+        <div class="top">
+          <span class="badge ${m.kind}">${m.kind === "input" ? "入力" : "反映"}</span>
+          <span class="mono">${fmtTime(m.t)}</span>
+        </div>
+        <div class="muted">#${idx+1} / ${new Date(m.createdAt).toLocaleString()}</div>
+      `;
+      el.addEventListener("click", async () => {
+        stopStepPlay();
+        markerSel = idx;
+        await seekTo(m.t);
+      });
+      markerList.appendChild(el);
+    });
+  }
+
+  function renderMeasures(){
+    measureList.innerHTML = "";
+    if(!measures.length){
+      measureList.innerHTML = `<div class="muted">まだ測定履歴がありません</div>`;
+      return;
+    }
+    measures.slice().reverse().forEach((m) => {
+      const el = document.createElement("div");
+      el.className = "item";
+      el.innerHTML = `
+        <div class="top">
+          <span class="badge">Δ</span>
+          <span class="mono"><b>${m.deltaMs.toFixed(2)} ms</b></span>
+        </div>
+        <div class="muted mono">input ${fmtTime(m.inputT)} / output ${fmtTime(m.outputT)}</div>
+        <div class="muted">${new Date(m.createdAt).toLocaleString()}</div>
+      `;
+      measureList.appendChild(el);
+    });
+  }
+
+  function pushMarker(kind, t){
+    const id = safeUUID();
+    markers.push({ id, kind, t, createdAt: Date.now() });
+    renderMarkers();
+  }
+
+  function pushMeasure(inputT, outputT){
+    const id = safeUUID();
+    const deltaMs = (outputT - inputT) * 1000;
+    measures.push({ id, inputT, outputT, deltaMs, createdAt: Date.now() });
+    renderMeasures();
+  }
+
+  // ---- rvfc
+  let frameSeq = 0;
+  let frameWaiters = [];
 
   function waitFrameAfter(seq, timeoutMs = 800){
     return new Promise((resolve) => {
@@ -403,6 +743,60 @@
       waiter.timer = setTimeout(() => waiter.resolve(false), timeoutMs);
       frameWaiters.push(waiter);
     });
+  }
+
+  function onFrame(now, meta){
+    frameSeq++;
+
+    curMeta = meta;
+    curMediaTime = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : null;
+    curCurrentTime = video.currentTime;
+
+    updateNowLabels();
+    updateSeekNow();
+    updateCurrentSummary();
+    drawMagnifiers();
+
+    // release waiters
+    if(frameWaiters.length){
+      const remain = [];
+      for(const w of frameWaiters){
+        if(frameSeq >= w.minSeq) w.resolve(true);
+        else remain.push(w);
+      }
+      frameWaiters = remain;
+    }
+
+    rvfcId = video.requestVideoFrameCallback(onFrame);
+  }
+
+  function startRvfc(){
+    if(rvfcId != null) return;
+    if(typeof video.requestVideoFrameCallback !== "function"){
+      // Fallback: update via rAF (less accurate for VFR)
+      const tick = () => {
+        curCurrentTime = video.currentTime;
+        curMediaTime = video.currentTime;
+        updateNowLabels();
+        updateSeekNow();
+        updateCurrentSummary();
+        drawMagnifiers();
+        rvfcId = requestAnimationFrame(tick);
+      };
+      rvfcId = requestAnimationFrame(tick);
+      return;
+    }
+    rvfcId = video.requestVideoFrameCallback(onFrame);
+  }
+
+  function stopRvfc(){
+    if(rvfcId == null) return;
+    if(typeof video.cancelVideoFrameCallback === "function"){
+      try{ video.cancelVideoFrameCallback(rvfcId); }catch{}
+    }else{
+      cancelAnimationFrame(rvfcId);
+    }
+    rvfcId = null;
   }
 
   async function seekTo(t){
@@ -418,219 +812,24 @@
       else video.currentTime = t;
     });
 
-    // 「seek後に表示されたフレーム」を待つ（レースしない）
     await waitFrameAfter(beforeSeq, 800);
   }
 
-  // 画面上の座標(clientX,clientY)を「transform前のstage座標(x,y)」に変換
-  function clientToStageXY(clientX, clientY){
-    const rect = stage.getBoundingClientRect();
-    const cx = rect.left + rect.width/2;
-    const cy = rect.top + rect.height/2;
-
-    const dx = clientX - cx;
-    const dy = clientY - cy;
-
-    const rad = (-rotation) * Math.PI / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-
-    const invScale = 1 / viewScale;
-
-    // inverse scale
-    const sx = dx * invScale;
-    const sy = dy * invScale;
-
-    // inverse rotate
-    const lx = (sx * cos - sy * sin);
-    const ly = (sx * sin + sy * cos);
-
-    // stage local (origin top-left)
-    const x = lx + stageW/2;
-    const y = ly + stageH/2;
-    return { x, y };
-  }
-
-  // stage座標（CSS px） -> videoピクセル座標（videoWidth/Height）
-  function stageXYToVideoXY(x, y){
-    const vw = video.videoWidth || 0;
-    const vh = video.videoHeight || 0;
-    if(!vw || !vh || !stageW || !stageH) return null;
-
-    // object-fit: contain を想定した内容領域
-    const scale = Math.min(stageW / vw, stageH / vh);
-    const contentW = vw * scale;
-    const contentH = vh * scale;
-    const offX = (stageW - contentW) / 2;
-    const offY = (stageH - contentH) / 2;
-
-    const nx = (x - offX) / scale;
-    const ny = (y - offY) / scale;
-
-    return {
-      x: clamp(nx, 0, vw),
-      y: clamp(ny, 0, vh),
-      scale, offX, offY, contentW, contentH
-    };
-  }
-
-  function updateNowLabels(){
-    const mt = curMediaTime;
-    const ct = video.currentTime;
-
-    nowMedia.textContent = `mediaTime: ${mt==null ? "—" : fmtTime(mt)}`;
-    nowCT.textContent = `currentTime: ${Number.isFinite(ct) ? fmtTime(ct) : "—"}`;
-
-    const fps = getFpsRef();
-    const one = 1000 / fps;
-    refFrameMs.textContent = `${one.toFixed(3)} ms (@${fps})`;
-
-    // 参考フレ数（あくまで参考）
-    if(inputMark && outputMark){
-      const deltaMs = (outputMark.t - inputMark.t) * 1000;
-      refFrames.textContent = `${(deltaMs / one).toFixed(2)} frames(参考)`;
-    } else {
-      refFrames.textContent = "—";
+  // ---- step play
+  function stopStepPlay(){
+    if(stepTimer){
+      clearInterval(stepTimer);
+      stepTimer = null;
     }
-
-    // シーク反映
-    if(Number.isFinite(ct)) seek.value = String(ct);
+    stepPlay.textContent = "▶ 1秒に1コマ";
   }
 
-  function pushMarker(kind, t){
-    const id = crypto.randomUUID();
-    markers.push({ id, kind, t, createdAt: new Date() });
-    markerSel = markers.length - 1;
-    renderMarkers();
-  }
-
-  function pushMeasure(){
-    if(!inputMark || !outputMark) return;
-    const deltaMs = (outputMark.t - inputMark.t) * 1000;
-    const id = crypto.randomUUID();
-    measures.unshift({
-      id,
-      inputT: inputMark.t,
-      outputT: outputMark.t,
-      deltaMs,
-      createdAt: new Date()
-    });
-    renderMeasures();
-  }
-
-  function updateCurrentSummary(){
-    if(!inputMark && !outputMark){
-      currentSummary.textContent = "未記録";
-      return;
-    }
-    const inTxt = inputMark ? `入力: ${fmtTime(inputMark.t)}` : `入力: 未記録`;
-    const outTxt = outputMark ? `反映: ${fmtTime(outputMark.t)}` : `反映: 未記録`;
-    let dTxt = "差分: —";
-    if(inputMark && outputMark){
-      const deltaMs = (outputMark.t - inputMark.t) * 1000;
-      dTxt = `差分: ${deltaMs.toFixed(3)} ms`;
-    }
-    currentSummary.textContent = `${inTxt} / ${outTxt} / ${dTxt}`;
-  }
-
-  function updateVfrDisp(){
-    if(vfr.n === 0){
-      vfrDisp.textContent = "—";
-      return;
-    }
-    const avg = vfr.sum / vfr.n;
-    vfrDisp.textContent = `min ${vfr.min.toFixed(3)} / max ${vfr.max.toFixed(3)} / avg ${avg.toFixed(3)} ms（n=${vfr.n}）`;
-  }
-
-  function renderMarkers(){
-    if(markers.length === 0){
-      markerList.innerHTML = `<div class="item"><span class="muted">まだマーカーがありません</span></div>`;
-      return;
-    }
-    markerList.innerHTML = markers.map((m, idx) => {
-      const label = m.kind === "input" ? "入力" : "反映";
-      const sel = idx === markerSel ? 'style="background: rgba(58,123,213,.12);"' : "";
-      return `
-        <div class="item" data-idx="${idx}" ${sel}>
-          <span class="badge">${label}</span>
-          <span class="mono">${fmtTime(m.t)}</span>
-          <span class="muted">（tapでジャンプ）</span>
-        </div>
-      `;
-    }).join("");
-  }
-
-  function renderMeasures(){
-    if(measures.length === 0){
-      measureList.innerHTML = `<div class="item"><span class="muted">まだ測定履歴がありません</span></div>`;
-      return;
-    }
-    measureList.innerHTML = measures.map((r) => {
-      return `
-        <div class="item" data-id="${r.id}">
-          <span class="badge">Δ</span>
-          <span class="mono">${r.deltaMs.toFixed(3)} ms</span>
-          <span class="muted">in ${fmtTime(r.inputT)} / out ${fmtTime(r.outputT)}</span>
-        </div>
-      `;
-    }).join("");
-  }
-
-  async function jumpToMarker(idx){
-    if(idx < 0 || idx >= markers.length) return;
-    markerSel = idx;
-    renderMarkers();
-    stopStepPlay();
-    await seekTo(markers[idx].t);
-  }
-
-  // ---- frame callback loop (mediaTime取得)
-  function onFrame(now, meta){
-    frameSeq++;
-
-    curMeta = meta;
-    curMediaTime = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : null;
-    curCurrentTime = video.currentTime;
-
-    updateNowLabels();
-    updateCurrentSummary();
-    updateVfrDisp();
-    drawMagnifier();
-
-    // 待っている人を解放（minSeqを満たしたらOK）
-    if(frameWaiters.length){
-      const remain = [];
-      for(const w of frameWaiters){
-        if(frameSeq >= w.minSeq) w.resolve(true);
-        else remain.push(w);
-      }
-      frameWaiters = remain;
-    }
-
-    rvfcId = video.requestVideoFrameCallback(onFrame);
-  }
-
-
-  function startRvfc(){
-    if(typeof video.requestVideoFrameCallback !== "function"){
-      alert("このブラウザは requestVideoFrameCallback() 非対応です。iOSならSafari(最新)で試してください。");
-      return;
-    }
-    if(rvfcId != null && typeof video.cancelVideoFrameCallback === "function"){
-      try { video.cancelVideoFrameCallback(rvfcId); } catch {}
-    }
-    rvfcId = video.requestVideoFrameCallback(onFrame);
-  }
-
-  // ---- stepping (VFRでも「次の表示フレーム」を探す)
   async function stepAdjacent(direction, fromAuto = false){
     if(busy) return;
     busy = true;
 
     try{
-      // ★手動操作のときだけ自動再生を止める（←ここがポイント）
       if(!fromAuto) stopStepPlay();
-
       video.pause();
 
       const startMT = (curMediaTime ?? video.currentTime);
@@ -639,7 +838,7 @@
       const d = Number.isFinite(video.duration) ? video.duration : 0;
       if(!d) return;
 
-      let delta = (1 / getFpsRef()) * 0.6; // 初期シーク幅（参考fpsから適当に）
+      let delta = (1 / getFpsRef()) * 0.6;
       let changed = false;
 
       for(let i=0; i<18; i++){
@@ -651,7 +850,6 @@
         if(Number.isFinite(mt) && Math.abs(mt - startMT) > 1e-9){
           changed = true;
 
-          // VFR統計（コマ送り時のΔms）
           const dtMs = Math.abs((mt - startMT) * 1000);
           if(Number.isFinite(dtMs) && dtMs > 0){
             vfr.min = Math.min(vfr.min, dtMs);
@@ -661,11 +859,10 @@
           }
           break;
         }
-        delta *= 1.7; // 進まなければ増やす
+        delta *= 1.7;
       }
 
       if(!changed){
-        // 最後の一手（50ms）
         const fallback = clamp(startCT + direction * 0.05, 0, d);
         await seekTo(fallback);
       }
@@ -675,151 +872,165 @@
     }
   }
 
-
-  // ---- magnifier
-  function drawMagnifier(){
+  // ---- magnifiers
+  function drawMagnifierOne(which, f, magEl, canvas, ctx, infoEl){
     if(!magOn.checked) return;
+    if(magEl.style.display === "none") return;
     if(!video.videoWidth || !video.videoHeight || !stageW || !stageH) return;
 
-    // focus rect center -> video pixel center
-    const vpos = stageXYToVideoXY(focus.x, focus.y);
+    const vpos = stageXYToVideoXY(f.x, f.y);
     if(!vpos) return;
 
     const mz = Number(magZoom.value);
-    const outW = magCanvas.width;
-    const outH = magCanvas.height;
+    const outW = canvas.width;
+    const outH = canvas.height;
 
-    // cropping size in video pixels
-    const cropW = (focus.size / vpos.scale) / mz;
-    const cropH = (focus.size / vpos.scale) / mz;
+    const cropW = (f.size / vpos.scale) / mz;
+    const cropH = (f.size / vpos.scale) / mz;
 
     const sx = clamp(vpos.x - cropW/2, 0, video.videoWidth - cropW);
     const sy = clamp(vpos.y - cropH/2, 0, video.videoHeight - cropH);
 
-    magCtx.clearRect(0,0,outW,outH);
+    ctx.clearRect(0,0,outW,outH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, outW, outH);
 
-    // draw
-    magCtx.imageSmoothingEnabled = true;
-    magCtx.drawImage(video, sx, sy, cropW, cropH, 0, 0, outW, outH);
+    ctx.strokeStyle = (which === "A") ? "rgba(58,123,213,.95)" : "rgba(255,107,107,.95)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(6,6,outW-12,outH-12);
 
-    // overlay crosshair
-    magCtx.strokeStyle = "rgba(58,123,213,.95)";
-    magCtx.lineWidth = 3;
-    magCtx.strokeRect(6,6,outW-12,outH-12);
+    ctx.strokeStyle = "rgba(232,238,247,.85)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(outW/2, 10); ctx.lineTo(outW/2, outH-10);
+    ctx.moveTo(10, outH/2); ctx.lineTo(outW-10, outH/2);
+    ctx.stroke();
 
-    magCtx.strokeStyle = "rgba(232,238,247,.85)";
-    magCtx.lineWidth = 2;
-    magCtx.beginPath();
-    magCtx.moveTo(outW/2, 10); magCtx.lineTo(outW/2, outH-10);
-    magCtx.moveTo(10, outH/2); magCtx.lineTo(outW-10, outH/2);
-    magCtx.stroke();
+    infoEl.textContent = `mt ${fmtTime(curMediaTime)} / x${mz.toFixed(1)}`;
+  }
 
-    magInfo.textContent = `mt ${fmtTime(curMediaTime)} / x${mz.toFixed(1)}`;
+  function drawMagnifiers(){
+    if(!magOn.checked) return;
+    drawMagnifierOne("A", focusA, magA, magCanvasA, magCtxA, magInfoA);
+    drawMagnifierOne("B", focusB, magB, magCanvasB, magCtxB, magInfoB);
   }
 
   // ---- events
-  file.addEventListener("change", async () => {
-    stopStepPlay();
-    inputMark = null;
-    outputMark = null;
-    markers = [];
-    measures = [];
-    markerSel = -1;
-    vfr = { min: Infinity, max: -Infinity, sum: 0, n: 0 };
-
-    renderMarkers();
-    renderMeasures();
-    updateVfrDisp();
-    updateCurrentSummary();
-
-    const f = file.files?.[0];
-    if(!f) return;
-
-    // 以前のblobを破棄（メモリ節約）
-    if(video.src && video.src.startsWith("blob:")){
-      try { URL.revokeObjectURL(video.src); } catch {}
-    }
-
-    const url = URL.createObjectURL(f);
-
-    // iOSで「loadだけだと動かない」対策：play→pauseで読み込みを開始させる
-    video.src = url;
-    video.preload = "auto";
-    video.muted = true;
-    video.playsInline = true;
-    video.load();
-
-    try{
-      await video.play();   // ユーザー操作直後なので再生が通りやすい
-      video.pause();
-      // 先頭の静止画を出したいならここで0に戻す
-      video.currentTime = 0;
-    } catch (e){
-      // 再生がブロックされても、ここで落とさない
-      console.log("prime play failed:", e);
-    }
-  });
-
-  video.addEventListener("loadedmetadata", () => {
-    updateSeekMax();
-    enableControls(true);
-
-    // stage size update
-    const ro = new ResizeObserver(() => {
-      // video要素の表示サイズ（transform前のサイズ）をstageW/Hとして扱う
-      stageW = video.clientWidth;
-      stageH = video.clientHeight;
-
-      // 初期フォーカスを中央に
-      if(focus.x === 0 && focus.y === 0){
-        focus.x = stageW/2;
-        focus.y = stageH/2;
-      }
-      updateFocusRect();
-      drawMagnifier();
-    });
-    ro.observe(video);
-
-    startRvfc();
-    updateMagUI();
-  });
-
-  video.addEventListener("error", () => {
-    const err = video.error;
-    // code: 1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
-    alert(`動画の読み込みに失敗しました（error code: ${err?.code ?? "?"}）\n` +
-          `別形式（H.264 mp4等）に変換すると再生できることがあります。`);
-  });
-
-  seek.addEventListener("input", async () => {
-    stopStepPlay();
-    await seekTo(Number(seek.value));
-  });
-
-  zoom.addEventListener("input", () => {
-    viewScale = Number(zoom.value);
-    zoomVal.textContent = `${viewScale.toFixed(2)}x`;
-    updateStageTransform();
-  });
-
-  rotL.addEventListener("click", () => {
-    rotation = (rotation - 90) % 360;
-    updateStageTransform();
-  });
-  rotR.addEventListener("click", () => {
-    rotation = (rotation + 90) % 360;
-    updateStageTransform();
-  });
+  zoom.addEventListener("input", () => updateStageTransform());
+  rotL.addEventListener("click", () => { rotation = (rotation - 90) % 360; updateStageTransform(); });
+  rotR.addEventListener("click", () => { rotation = (rotation + 90) % 360; updateStageTransform(); });
 
   magOn.addEventListener("change", () => updateMagUI());
-  magZoom.addEventListener("input", () => { updateMagUI(); drawMagnifier(); });
-  magSize.addEventListener("input", () => { updateMagUI(); updateFocusRect(); drawMagnifier(); });
+  magZoom.addEventListener("input", () => { updateMagUI(); drawMagnifiers(); });
+  magSize.addEventListener("input", () => { updateMagUI(); drawMagnifiers(); });
+
+  // ---- 2つの拡大窓：位置選択
+  function setActivePick(which){
+    activePick = (which === "B") ? "B" : "A";
+    updateActivePickUI();
+    pickHint.textContent = activePick === "A"
+      ? "→ 動画をタップで A を移動"
+      : "→ 動画をタップで B を移動";
+  }
+
+  pickA.addEventListener("click", () => setActivePick("A"));
+  pickB.addEventListener("click", () => setActivePick("B"));
+  magSetA.addEventListener("click", () => setActivePick("A"));
+  magSetB.addEventListener("click", () => setActivePick("B"));
+
+  // 拡大窓から即記録（押しやすい）
+  magMarkInput.addEventListener("click", () => markInput.click());
+  magMarkOutput.addEventListener("click", () => markOutput.click());
+
+  // キーボード（PC用）：1=A、2=B
+  window.addEventListener("keydown", (e) => {
+    if(e.key === "1") setActivePick("A");
+    if(e.key === "2") setActivePick("B");
+  });
+
+  // ---- 拡大窓をドラッグで移動（位置を保存）
+  function normalizeMagPosition(el){
+    const r = el.getBoundingClientRect();
+    el.style.left = `${r.left}px`;
+    el.style.top  = `${r.top}px`;
+    el.style.right = "auto";
+    el.style.bottom = "auto";
+  }
+
+  function clampMagToViewport(el){
+    const r = el.getBoundingClientRect();
+    const pad = 6;
+    let x = r.left, y = r.top;
+    x = clamp(x, pad, window.innerWidth - r.width - pad);
+    y = clamp(y, pad, window.innerHeight - r.height - pad);
+    el.style.left = `${x}px`;
+    el.style.top  = `${y}px`;
+  }
+
+  function saveMagPos(key, el){
+    try{
+      const r = el.getBoundingClientRect();
+      localStorage.setItem(key, JSON.stringify({ x:r.left, y:r.top }));
+    }catch{}
+  }
+
+  function restoreMagPos(key, el){
+    try{
+      const v = localStorage.getItem(key);
+      if(!v) return;
+      const p = JSON.parse(v);
+      if(!Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+      normalizeMagPosition(el);
+      el.style.left = `${p.x}px`;
+      el.style.top  = `${p.y}px`;
+      clampMagToViewport(el);
+    }catch{}
+  }
+
+  function makeMagDraggable(el, headerEl, key){
+    let draggingMag = false;
+    let start = null;
+
+    const onDown = (e) => {
+      if(!magOn.checked) return;
+      draggingMag = true;
+      el.setPointerCapture(e.pointerId);
+      normalizeMagPosition(el);
+      const r = el.getBoundingClientRect();
+      start = { px:e.clientX, py:e.clientY, left:r.left, top:r.top };
+      e.preventDefault();
+    };
+
+    const onMove = (e) => {
+      if(!draggingMag || !start) return;
+      const dx = e.clientX - start.px;
+      const dy = e.clientY - start.py;
+      el.style.left = `${start.left + dx}px`;
+      el.style.top  = `${start.top + dy}px`;
+      clampMagToViewport(el);
+      e.preventDefault();
+    };
+
+    const onUp = (e) => {
+      if(!draggingMag) return;
+      draggingMag = false;
+      start = null;
+      try{ el.releasePointerCapture(e.pointerId); }catch{}
+      saveMagPos(key, el);
+      e.preventDefault();
+    };
+
+    headerEl.addEventListener("pointerdown", onDown);
+    headerEl.addEventListener("pointermove", onMove);
+    headerEl.addEventListener("pointerup", onUp);
+    headerEl.addEventListener("pointercancel", onUp);
+  }
 
   toStart.addEventListener("click", async () => { stopStepPlay(); await seekTo(0); });
   toEnd.addEventListener("click", async () => { stopStepPlay(); await seekTo(video.duration || 0); });
 
-  stepBack.addEventListener("click", async () => stepAdjacent(-1));
-  stepFwd.addEventListener("click", async () => stepAdjacent(+1));
+  stepBack.addEventListener("click", async () => { await stepAdjacent(-1); });
+  stepFwd.addEventListener("click", async () => { await stepAdjacent(+1); });
 
   pauseBtn.addEventListener("click", () => { stopStepPlay(); video.pause(); });
 
@@ -828,48 +1039,68 @@
       stopStepPlay();
       return;
     }
+    stepPlay.textContent = "⏱ 1秒に1コマ（ON）";
     video.pause();
-    stepPlay.textContent = "■ 1秒に1コマ（停止）";
     stepTimer = setInterval(() => stepAdjacent(+1, true), 1000);
+  });
+
+  seek.addEventListener("input", async () => {
+    stopStepPlay();
+    const t = Number(seek.value);
+    await seekTo(t);
   });
 
   markInput.addEventListener("click", () => {
     if(curMediaTime == null) return;
     inputMark = { t: curMediaTime, at: new Date(), kind:"input" };
-    pushMarker("input", curMediaTime);
+    pushMarker("input", inputMark.t);
     updateCurrentSummary();
-
-    // 反映が既にあれば測定履歴を追加
-    if(outputMark) pushMeasure();
   });
 
   markOutput.addEventListener("click", () => {
     if(curMediaTime == null) return;
     outputMark = { t: curMediaTime, at: new Date(), kind:"output" };
-    pushMarker("output", curMediaTime);
-    updateCurrentSummary();
+    pushMarker("output", outputMark.t);
 
-    // 入力が既にあれば測定履歴を追加
-    if(inputMark) pushMeasure();
+    if(inputMark){
+      pushMeasure(inputMark.t, outputMark.t);
+    }
+    updateCurrentSummary();
   });
 
   clearCurrent.addEventListener("click", () => {
     inputMark = null;
     outputMark = null;
     updateCurrentSummary();
-    updateNowLabels();
   });
 
   prevMarker.addEventListener("click", async () => {
-    if(markers.length === 0) return;
-    const next = markerSel <= 0 ? 0 : markerSel - 1;
-    await jumpToMarker(next);
+    stopStepPlay();
+    if(!markers.length) return;
+    markerSel = (markerSel <= 0) ? (markers.length - 1) : (markerSel - 1);
+    await seekTo(markers[markerSel].t);
   });
 
   nextMarker.addEventListener("click", async () => {
-    if(markers.length === 0) return;
-    const next = markerSel < 0 ? 0 : Math.min(markers.length - 1, markerSel + 1);
-    await jumpToMarker(next);
+    stopStepPlay();
+    if(!markers.length) return;
+    markerSel = (markerSel >= markers.length - 1) ? 0 : (markerSel + 1);
+    await seekTo(markers[markerSel].t);
+  });
+
+  copyCurrent.addEventListener("click", async () => {
+    const inT = inputMark ? inputMark.t : null;
+    const outT = outputMark ? outputMark.t : null;
+    const deltaMs = (inT != null && outT != null) ? ((outT - inT) * 1000) : null;
+    const text =
+`inputTime(mediaTime): ${inT != null ? fmtTime(inT) : "—"}
+displayTime(mediaTime): ${outT != null ? fmtTime(outT) : "—"}
+deltaMs: ${deltaMs != null ? deltaMs.toFixed(2) : "—"} ms`;
+    try{
+      await navigator.clipboard.writeText(text);
+    }catch{
+      alert(text);
+    }
   });
 
   resetVfr.addEventListener("click", () => {
@@ -877,48 +1108,108 @@
     updateVfrDisp();
   });
 
-  copyCurrent.addEventListener("click", async () => {
-    let text = `SF6 入力→表示\n`;
-    text += `input: ${inputMark ? fmtTime(inputMark.t) : "—"}\n`;
-    text += `output: ${outputMark ? fmtTime(outputMark.t) : "—"}\n`;
-    if(inputMark && outputMark){
-      const deltaMs = (outputMark.t - inputMark.t) * 1000;
-      text += `delta: ${deltaMs.toFixed(3)} ms\n`;
-      text += `(fps参考: ${getFpsRef()})\n`;
+  file.addEventListener("change", async () => {
+    stopStepPlay();
+    inputMark = null;
+    outputMark = null;
+    markers = [];
+    measures = [];
+    markerSel = -1;
+    vfr = { min: Infinity, max: -Infinity, sum: 0, n: 0 };
+    renderMarkers();
+    renderMeasures();
+    updateVfrDisp();
+    updateCurrentSummary();
+
+    const f = file.files?.[0];
+    if(!f) return;
+
+    if(video.src && video.src.startsWith("blob:")){
+      try { URL.revokeObjectURL(video.src); } catch {}
     }
+
+    const url = URL.createObjectURL(f);
+
+    video.src = url;
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
+    video.load();
+
     try{
-      await navigator.clipboard.writeText(text);
-      alert("コピーしました");
-    } catch {
-      prompt("コピーできない場合はここから手動コピーしてください", text);
+      await video.play();
+      video.pause();
+      video.currentTime = 0;
+    }catch(e){
+      console.log("prime play failed:", e);
     }
   });
 
-  markerList.addEventListener("click", async (e) => {
-    const el = e.target.closest(".item");
-    if(!el) return;
-    const idx = Number(el.dataset.idx);
-    if(Number.isFinite(idx)) await jumpToMarker(idx);
+  video.addEventListener("error", () => {
+    const err = video.error;
+    alert(`動画の読み込みに失敗しました（error code: ${err?.code ?? "?"}）\n別形式（H.264 mp4等）に変換すると再生できることがあります。`);
   });
 
-  // stage tap/drag -> move focus rect
+  video.addEventListener("loadedmetadata", () => {
+    enableControls(true);
+    updateSeekMax();
+
+    // stageW/H: video element client size (untransformed)
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(() => {
+        stageW = video.clientWidth;
+        stageH = video.clientHeight;
+
+        if((focusA.x === 0 && focusA.y === 0) && (focusB.x === 0 && focusB.y === 0)){
+          focusA.x = stageW * 0.35;
+          focusA.y = stageH * 0.50;
+          focusB.x = stageW * 0.65;
+          focusB.y = stageH * 0.50;
+        }
+        updateFocusRects();
+        drawMagnifiers();
+        updateMagUI();
+      });
+    });
+    ro.observe(video);
+
+    startRvfc();
+    updateMagUI();
+
+    // 拡大窓ドラッグ＆位置復元
+    restoreMagPos("magA_pos", magA);
+    restoreMagPos("magB_pos", magB);
+    if(!magDragInit){
+      makeMagDraggable(magA, magHeaderA, "magA_pos");
+      makeMagDraggable(magB, magHeaderB, "magB_pos");
+      magDragInit = true;
+    }
+
+    // 初期はAを選択
+    setActivePick("A");
+  });
+
+  // stage tap/drag -> move active focus rect
   let dragging = false;
   stage.addEventListener("pointerdown", (e) => {
+    if(!stageW || !stageH) return;
     dragging = true;
     stage.setPointerCapture(e.pointerId);
     const p = clientToStageXY(e.clientX, e.clientY);
-    focus.x = clamp(p.x, 0, stageW);
-    focus.y = clamp(p.y, 0, stageH);
-    updateFocusRect();
-    drawMagnifier();
+    const f = (activePick === "A") ? focusA : focusB;
+    f.x = clamp(p.x, 0, stageW);
+    f.y = clamp(p.y, 0, stageH);
+    updateFocusRects();
+    drawMagnifiers();
   });
   stage.addEventListener("pointermove", (e) => {
     if(!dragging) return;
     const p = clientToStageXY(e.clientX, e.clientY);
-    focus.x = clamp(p.x, 0, stageW);
-    focus.y = clamp(p.y, 0, stageH);
-    updateFocusRect();
-    drawMagnifier();
+    const f = (activePick === "A") ? focusA : focusB;
+    f.x = clamp(p.x, 0, stageW);
+    f.y = clamp(p.y, 0, stageH);
+    updateFocusRects();
+    drawMagnifiers();
   });
   stage.addEventListener("pointerup", () => { dragging = false; });
 
