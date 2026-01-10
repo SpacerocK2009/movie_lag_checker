@@ -1,0 +1,905 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>SF6 入力→表示 ラグ計測（VFR対応 / mediaTime）</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; background:#0b0f14; color:#e8eef7; font-family: system-ui,-apple-system,"Segoe UI",sans-serif; }
+    .wrap { max-width: 1180px; margin:0 auto; padding: 14px; }
+    h1 { font-size: 18px; margin: 0 0 10px; }
+    .panel { background:#121824; border:1px solid #223049; border-radius:14px; padding: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+    .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .row + .row { margin-top: 10px; }
+    label { font-size: 12px; opacity:.9; }
+    select, input[type="file"], button, input[type="range"], input[type="text"]{
+      background:#0d1320; border:1px solid #2a3a5c; color:#e8eef7;
+      border-radius: 12px; padding: 10px 12px; font-size: 14px;
+    }
+    button { cursor:pointer; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    .pill { display:flex; gap:8px; align-items:center; padding: 8px 10px; border-radius: 999px; border:1px solid #2a3a5c; background:#0d1320; }
+    .accent { border-color:#3a7bd5; }
+    .warn { font-size: 12px; opacity:.85; line-height: 1.45; }
+    .grid { display:grid; grid-template-columns: 1.2fr .8fr; gap: 10px; }
+    @media (max-width: 980px){ .grid{ grid-template-columns:1fr; } }
+    .box { border:1px solid #223049; background:#0d1320; border-radius: 14px; padding: 10px; }
+    .k { font-size: 12px; opacity:.85; }
+    .v { font-size: 15px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .video-shell { display:flex; justify-content:center; background:#070a10; border:1px solid #223049; border-radius:14px; padding: 10px; }
+    .stage-wrap { position: relative; width: 100%; display:flex; justify-content:center; align-items:center; overflow:hidden; }
+    .stage {
+      position: relative;
+      transform-origin: center center;
+      touch-action: none; /* ドラッグ・タップ操作用 */
+      user-select: none;
+    }
+    video {
+      display:block;
+      max-width: 100%;
+      max-height: 60vh;
+      border-radius: 12px;
+      background:#000;
+    }
+    .focus-rect {
+      position:absolute;
+      border:2px solid rgba(58,123,213,.95);
+      border-radius: 10px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,.10) inset;
+      pointer-events: none;
+    }
+    .crosshair::before, .crosshair::after{
+      content:"";
+      position:absolute;
+      background: rgba(232,238,247,.85);
+      pointer-events:none;
+    }
+    .crosshair::before{ width: 1px; top:-10px; bottom:-10px; left:50%; transform: translateX(-0.5px); }
+    .crosshair::after { height: 1px; left:-10px; right:-10px; top:50%; transform: translateY(-0.5px); }
+
+    .mag {
+      position: fixed;
+      right: 10px;
+      bottom: 10px;
+      width: 220px;
+      height: 220px;
+      background:#070a10;
+      border:1px solid #223049;
+      border-radius: 14px;
+      overflow:hidden;
+      box-shadow: 0 8px 26px rgba(0,0,0,.35);
+      z-index: 9999;
+    }
+    .mag header{
+      display:flex; justify-content:space-between; align-items:center;
+      padding: 6px 8px; font-size: 12px; opacity:.9;
+      background:#0d1320; border-bottom:1px solid #223049;
+    }
+    .mag canvas{ display:block; width:100%; height: calc(100% - 30px); }
+    .list {
+      max-height: 240px;
+      overflow:auto;
+      border-radius: 12px;
+      border:1px solid #223049;
+    }
+    .item {
+      display:flex;
+      gap:10px;
+      align-items:center;
+      padding: 8px 10px;
+      border-bottom:1px solid rgba(34,48,73,.6);
+      cursor:pointer;
+    }
+    .item:last-child{ border-bottom:none; }
+    .badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; border:1px solid #2a3a5c; background:#0b0f14; }
+    .muted { opacity:.8; font-size: 12px; }
+    .mono { font-variant-numeric: tabular-nums; }
+    .split { display:flex; gap:10px; flex-wrap:wrap; }
+    .mini { padding: 8px 10px; font-size: 13px; border-radius: 12px; }
+    .kbd { font-size: 12px; opacity:.85; line-height: 1.5; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SF6 入力→表示 ラグ計測（VFR対応 / mediaTimeで計算）</h1>
+
+  <div class="panel">
+
+    <div class="row">
+      <input id="file" type="file" accept="video/*" />
+
+      <div class="pill">
+        <label for="fps">参考FPS</label>
+        <select id="fps">
+          <option value="24">24</option>
+          <option value="30">30</option>
+          <option value="60">60</option>
+          <option value="120">120</option>
+          <option value="240" selected>240</option>
+        </select>
+      </div>
+
+      <div class="pill">
+        <label for="zoom">表示ズーム</label>
+        <input id="zoom" type="range" min="0.6" max="2.0" step="0.01" value="1.0" />
+        <span id="zoomVal" class="mono">1.00x</span>
+      </div>
+
+      <button id="rotL" class="mini" title="左に90°回転">↺ 回転</button>
+      <button id="rotR" class="mini" title="右に90°回転">↻ 回転</button>
+
+      <div class="pill">
+        <label for="magOn">拡大窓</label>
+        <input id="magOn" type="checkbox" checked />
+      </div>
+
+      <div class="pill">
+        <label for="magZoom">拡大倍率</label>
+        <input id="magZoom" type="range" min="1" max="8" step="0.1" value="4" />
+        <span id="magZoomVal" class="mono">4.0x</span>
+      </div>
+
+      <div class="pill">
+        <label for="magSize">拡大範囲</label>
+        <input id="magSize" type="range" min="60" max="260" step="2" value="140" />
+        <span id="magSizeVal" class="mono">140px</span>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="video-shell" style="width:100%;">
+        <div class="stage-wrap">
+          <div id="stage" class="stage">
+            <video id="video" playsinline muted></video>
+            <div id="focusRect" class="focus-rect crosshair"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="toStart">⏮ 先頭</button>
+      <button id="stepBack">◀ 1コマ戻る</button>
+      <button id="stepPlay" class="accent">▶ 1秒に1コマ</button>
+      <button id="pause">⏸ 停止</button>
+      <button id="stepFwd">1コマ進む ▶</button>
+      <button id="toEnd">末尾 ⏭</button>
+
+      <div class="pill" style="flex:1; min-width: 260px;">
+        <label for="seek">シーク（currentTime）</label>
+        <input id="seek" type="range" min="0" max="0" step="0.001" value="0" style="width:100%;" />
+      </div>
+
+      <div class="pill">
+        <label>表示中フレーム</label>
+        <span id="nowMedia" class="mono">mediaTime: —</span>
+      </div>
+
+      <div class="pill">
+        <label>位置</label>
+        <span id="nowCT" class="mono">currentTime: —</span>
+      </div>
+    </div>
+
+    <div class="row" style="justify-content:space-between;">
+      <div class="split">
+        <button id="markInput" class="accent">入力を記録</button>
+        <button id="markOutput" class="accent">表示反映を記録</button>
+        <button id="clearCurrent">現在値クリア</button>
+
+        <button id="prevMarker">← 前のマーカー</button>
+        <button id="nextMarker">次のマーカー →</button>
+
+        <button id="copyCurrent">現在の結果をコピー</button>
+        <button id="resetVfr">VFR統計リセット</button>
+      </div>
+
+      <div class="kbd">
+        ショートカット：←/→=コマ送り　I=入力記録　O=反映記録　J/K=前/次マーカー　Space=1秒に1コマON/OFF
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="box">
+        <div class="k">現在の記録（最後に押した値が正）</div>
+        <div class="v" id="currentSummary">未記録</div>
+        <div class="warn" style="margin-top:8px;">
+          差分は <span class="mono">(displayTime - inputTime) * 1000</span>（ms）。FPSは参考表示のみです。
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <div class="pill">
+            <label>VFR揺れ（コマ送り時Δms）</label>
+            <span id="vfrDisp" class="mono">—</span>
+          </div>
+          <div class="pill">
+            <label>参考：1フレms</label>
+            <span id="refFrameMs" class="mono">—</span>
+          </div>
+          <div class="pill">
+            <label>参考：差分フレ</label>
+            <span id="refFrames" class="mono">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="k">このアプリの前提</div>
+        <div class="warn">
+          iPhoneの高fps動画はVFRになりやすいので、固定FPS前提の「フレ差×(1000/FPS)」はしません。<br/>
+          代わりに <span class="mono">requestVideoFrameCallback()</span> の <span class="mono">mediaTime</span> を使って計測します。
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="k">マーカー履歴（クリックでジャンプ）</div>
+        <div id="markerList" class="list"></div>
+      </div>
+
+      <div class="box">
+        <div class="k">測定履歴（入力＋反映が揃った瞬間に追加）</div>
+        <div id="measureList" class="list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 拡大窓 -->
+<div id="mag" class="mag" style="display:none;">
+  <header>
+    <span>拡大窓</span>
+    <span id="magInfo" class="mono">—</span>
+  </header>
+  <canvas id="magCanvas" width="400" height="400"></canvas>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const file = $("file");
+  const video = $("video");
+  const stage = $("stage");
+  const focusRect = $("focusRect");
+
+  const fpsSel = $("fps");
+  const zoom = $("zoom");
+  const zoomVal = $("zoomVal");
+  const rotL = $("rotL");
+  const rotR = $("rotR");
+
+  const magOn = $("magOn");
+  const mag = $("mag");
+  const magCanvas = $("magCanvas");
+  const magCtx = magCanvas.getContext("2d");
+  const magInfo = $("magInfo");
+  const magZoom = $("magZoom");
+  const magZoomVal = $("magZoomVal");
+  const magSize = $("magSize");
+  const magSizeVal = $("magSizeVal");
+
+  const seek = $("seek");
+  const nowMedia = $("nowMedia");
+  const nowCT = $("nowCT");
+
+  const toStart = $("toStart");
+  const toEnd = $("toEnd");
+  const stepBack = $("stepBack");
+  const stepFwd = $("stepFwd");
+  const stepPlay = $("stepPlay");
+  const pauseBtn = $("pause");
+
+  const markInput = $("markInput");
+  const markOutput = $("markOutput");
+  const clearCurrent = $("clearCurrent");
+
+  const prevMarker = $("prevMarker");
+  const nextMarker = $("nextMarker");
+
+  const copyCurrent = $("copyCurrent");
+  const resetVfr = $("resetVfr");
+
+  const currentSummary = $("currentSummary");
+  const vfrDisp = $("vfrDisp");
+  const refFrameMs = $("refFrameMs");
+  const refFrames = $("refFrames");
+
+  const markerList = $("markerList");
+  const measureList = $("measureList");
+
+  // ---- state
+  let rotation = 0;         // degrees
+  let viewScale = 1.0;
+
+  let stageW = 0, stageH = 0; // untransformed stage size (CSS px)
+  let rvfcId = null;
+  let frameWaiters = [];
+
+  let curMeta = null;       // last VideoFrameMetadata
+  let curMediaTime = null;  // seconds
+  let curCurrentTime = null;
+
+  let stepTimer = null;
+  let busy = false;
+
+  // Focus rect (in stage CSS px, untransformed coordinates)
+  let focus = { x: 0, y: 0, size: 140 };
+
+  // Marks (current)
+  let inputMark = null;   // {t: mediaTimeSec, at: Date, kind:'input'}
+  let outputMark = null;  // {t: mediaTimeSec, at: Date, kind:'output'}
+
+  // History
+  let markers = [];       // {id, kind, t, createdAt}
+  let markerSel = -1;
+  let measures = [];      // {id, inputT, outputT, deltaMs, createdAt}
+
+  // VFR stats (only for "step" actions)
+  let vfr = { min: Infinity, max: -Infinity, sum: 0, n: 0 };
+
+  // ---- utils
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const getFpsRef = () => Number(fpsSel.value || 240);
+
+  function fmtTime(sec){
+    if(sec == null || !Number.isFinite(sec)) return "—";
+    sec = Math.max(0, sec);
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    const ms = Math.floor((sec - Math.floor(sec)) * 1000);
+    return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}.${String(ms).padStart(3,"0")}`;
+  }
+
+  function updateStageTransform(){
+    stage.style.transform = `rotate(${rotation}deg) scale(${viewScale})`;
+  }
+
+  function updateFocusRect(){
+    focus.size = Number(magSize.value);
+    focusRect.style.width = `${focus.size}px`;
+    focusRect.style.height = `${focus.size}px`;
+    focusRect.style.left = `${focus.x - focus.size/2}px`;
+    focusRect.style.top  = `${focus.y - focus.size/2}px`;
+  }
+
+  function updateMagUI(){
+    magZoomVal.textContent = `${Number(magZoom.value).toFixed(1)}x`;
+    magSizeVal.textContent = `${Number(magSize.value)}px`;
+    mag.style.display = magOn.checked ? "" : "none";
+  }
+
+  function updateSeekMax(){
+    const d = Number.isFinite(video.duration) ? video.duration : 0;
+    seek.max = String(d);
+  }
+
+  function enableControls(enabled){
+    [
+      toStart,toEnd,stepBack,stepFwd,stepPlay,pauseBtn,
+      markInput,markOutput,clearCurrent,prevMarker,nextMarker,
+      seek,copyCurrent,resetVfr,rotL,rotR,zoom,fpsSel,
+      magOn,magZoom,magSize
+    ].forEach(el => el.disabled = !enabled);
+  }
+
+  function waitNextFrame(){
+    return new Promise(resolve => frameWaiters.push(resolve));
+  }
+
+  function stopStepPlay(){
+    if(stepTimer){
+      clearInterval(stepTimer);
+      stepTimer = null;
+      stepPlay.textContent = "▶ 1秒に1コマ";
+    }
+  }
+
+  async function seekTo(t){
+    const d = Number.isFinite(video.duration) ? video.duration : 0;
+    t = clamp(t, 0, d);
+
+    await new Promise(resolve => {
+      const onSeeked = () => resolve();
+      video.addEventListener("seeked", onSeeked, { once:true });
+      // fastSeekがあれば使う（対応状況は環境依存）
+      if(typeof video.fastSeek === "function") video.fastSeek(t);
+      else video.currentTime = t;
+    });
+
+    // seek後の“表示されたフレーム”を待つ（mediaTime更新を取りに行く）
+    await waitNextFrame().catch(()=>{});
+  }
+
+  // 画面上の座標(clientX,clientY)を「transform前のstage座標(x,y)」に変換
+  function clientToStageXY(clientX, clientY){
+    const rect = stage.getBoundingClientRect();
+    const cx = rect.left + rect.width/2;
+    const cy = rect.top + rect.height/2;
+
+    const dx = clientX - cx;
+    const dy = clientY - cy;
+
+    const rad = (-rotation) * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    const invScale = 1 / viewScale;
+
+    // inverse scale
+    const sx = dx * invScale;
+    const sy = dy * invScale;
+
+    // inverse rotate
+    const lx = (sx * cos - sy * sin);
+    const ly = (sx * sin + sy * cos);
+
+    // stage local (origin top-left)
+    const x = lx + stageW/2;
+    const y = ly + stageH/2;
+    return { x, y };
+  }
+
+  // stage座標（CSS px） -> videoピクセル座標（videoWidth/Height）
+  function stageXYToVideoXY(x, y){
+    const vw = video.videoWidth || 0;
+    const vh = video.videoHeight || 0;
+    if(!vw || !vh || !stageW || !stageH) return null;
+
+    // object-fit: contain を想定した内容領域
+    const scale = Math.min(stageW / vw, stageH / vh);
+    const contentW = vw * scale;
+    const contentH = vh * scale;
+    const offX = (stageW - contentW) / 2;
+    const offY = (stageH - contentH) / 2;
+
+    const nx = (x - offX) / scale;
+    const ny = (y - offY) / scale;
+
+    return {
+      x: clamp(nx, 0, vw),
+      y: clamp(ny, 0, vh),
+      scale, offX, offY, contentW, contentH
+    };
+  }
+
+  function updateNowLabels(){
+    const mt = curMediaTime;
+    const ct = video.currentTime;
+
+    nowMedia.textContent = `mediaTime: ${mt==null ? "—" : fmtTime(mt)}`;
+    nowCT.textContent = `currentTime: ${Number.isFinite(ct) ? fmtTime(ct) : "—"}`;
+
+    const fps = getFpsRef();
+    const one = 1000 / fps;
+    refFrameMs.textContent = `${one.toFixed(3)} ms (@${fps})`;
+
+    // 参考フレ数（あくまで参考）
+    if(inputMark && outputMark){
+      const deltaMs = (outputMark.t - inputMark.t) * 1000;
+      refFrames.textContent = `${(deltaMs / one).toFixed(2)} frames(参考)`;
+    } else {
+      refFrames.textContent = "—";
+    }
+
+    // シーク反映
+    if(Number.isFinite(ct)) seek.value = String(ct);
+  }
+
+  function pushMarker(kind, t){
+    const id = crypto.randomUUID();
+    markers.push({ id, kind, t, createdAt: new Date() });
+    markerSel = markers.length - 1;
+    renderMarkers();
+  }
+
+  function pushMeasure(){
+    if(!inputMark || !outputMark) return;
+    const deltaMs = (outputMark.t - inputMark.t) * 1000;
+    const id = crypto.randomUUID();
+    measures.unshift({
+      id,
+      inputT: inputMark.t,
+      outputT: outputMark.t,
+      deltaMs,
+      createdAt: new Date()
+    });
+    renderMeasures();
+  }
+
+  function updateCurrentSummary(){
+    if(!inputMark && !outputMark){
+      currentSummary.textContent = "未記録";
+      return;
+    }
+    const inTxt = inputMark ? `入力: ${fmtTime(inputMark.t)}` : `入力: 未記録`;
+    const outTxt = outputMark ? `反映: ${fmtTime(outputMark.t)}` : `反映: 未記録`;
+    let dTxt = "差分: —";
+    if(inputMark && outputMark){
+      const deltaMs = (outputMark.t - inputMark.t) * 1000;
+      dTxt = `差分: ${deltaMs.toFixed(3)} ms`;
+    }
+    currentSummary.textContent = `${inTxt} / ${outTxt} / ${dTxt}`;
+  }
+
+  function updateVfrDisp(){
+    if(vfr.n === 0){
+      vfrDisp.textContent = "—";
+      return;
+    }
+    const avg = vfr.sum / vfr.n;
+    vfrDisp.textContent = `min ${vfr.min.toFixed(3)} / max ${vfr.max.toFixed(3)} / avg ${avg.toFixed(3)} ms（n=${vfr.n}）`;
+  }
+
+  function renderMarkers(){
+    if(markers.length === 0){
+      markerList.innerHTML = `<div class="item"><span class="muted">まだマーカーがありません</span></div>`;
+      return;
+    }
+    markerList.innerHTML = markers.map((m, idx) => {
+      const label = m.kind === "input" ? "入力" : "反映";
+      const sel = idx === markerSel ? 'style="background: rgba(58,123,213,.12);"' : "";
+      return `
+        <div class="item" data-idx="${idx}" ${sel}>
+          <span class="badge">${label}</span>
+          <span class="mono">${fmtTime(m.t)}</span>
+          <span class="muted">（tapでジャンプ）</span>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderMeasures(){
+    if(measures.length === 0){
+      measureList.innerHTML = `<div class="item"><span class="muted">まだ測定履歴がありません</span></div>`;
+      return;
+    }
+    measureList.innerHTML = measures.map((r) => {
+      return `
+        <div class="item" data-id="${r.id}">
+          <span class="badge">Δ</span>
+          <span class="mono">${r.deltaMs.toFixed(3)} ms</span>
+          <span class="muted">in ${fmtTime(r.inputT)} / out ${fmtTime(r.outputT)}</span>
+        </div>
+      `;
+    }).join("");
+  }
+
+  async function jumpToMarker(idx){
+    if(idx < 0 || idx >= markers.length) return;
+    markerSel = idx;
+    renderMarkers();
+    stopStepPlay();
+    await seekTo(markers[idx].t);
+  }
+
+  // ---- frame callback loop (mediaTime取得)
+  function onFrame(now, meta){
+    curMeta = meta;
+    curMediaTime = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : null;
+    curCurrentTime = video.currentTime;
+
+    // UI update
+    updateNowLabels();
+    updateCurrentSummary();
+    updateVfrDisp();
+    drawMagnifier();
+
+    // resolve waiters
+    if(frameWaiters.length){
+      const ws = frameWaiters.slice();
+      frameWaiters.length = 0;
+      ws.forEach(fn => fn(meta));
+    }
+
+    // schedule next
+    rvfcId = video.requestVideoFrameCallback(onFrame);
+  }
+
+  function startRvfc(){
+    if(typeof video.requestVideoFrameCallback !== "function"){
+      alert("このブラウザは requestVideoFrameCallback() 非対応です。iOSならSafari(最新)で試してください。");
+      return;
+    }
+    if(rvfcId != null && typeof video.cancelVideoFrameCallback === "function"){
+      try { video.cancelVideoFrameCallback(rvfcId); } catch {}
+    }
+    rvfcId = video.requestVideoFrameCallback(onFrame);
+  }
+
+  // ---- stepping (VFRでも「次の表示フレーム」を探す)
+  async function stepAdjacent(direction){
+    if(busy) return;
+    busy = true;
+    try{
+      stopStepPlay();
+      video.pause();
+
+      const startMT = curMediaTime ?? video.currentTime;
+      const startCT = video.currentTime;
+
+      const d = Number.isFinite(video.duration) ? video.duration : 0;
+      if(!d){ busy=false; return; }
+
+      // 段階的にnudgeを大きくして「別フレーム」に到達するまで探す
+      let changed = false;
+      let lastMT = startMT;
+
+      for(let i=0; i<40; i++){
+        const nudge = (0.0005 * (i+1)); // 0.5ms刻みで拡大
+        const target = clamp(startCT + direction * nudge, 0, d);
+
+        await seekTo(target);
+
+        const mt = curMediaTime ?? video.currentTime;
+        if(Math.abs(mt - startMT) > 1e-9){
+          changed = true;
+
+          // コマ送り時のΔmsをVFR統計に入れる（表示されたフレーム間隔ベース）
+          const dtMs = Math.abs((mt - lastMT) * 1000);
+          if(Number.isFinite(dtMs) && dtMs > 0){
+            vfr.min = Math.min(vfr.min, dtMs);
+            vfr.max = Math.max(vfr.max, dtMs);
+            vfr.sum += dtMs;
+            vfr.n += 1;
+            updateVfrDisp();
+          }
+          break;
+        }
+      }
+
+      if(!changed){
+        // ここに来るのは、シークが粒度不足 or 近傍にフレ境界が来ない等
+        // それでも“今見えてるフレ”は正しいので、ユーザーの手動で進められる範囲で使う。
+      }
+    } finally {
+      busy = false;
+    }
+  }
+
+  // ---- magnifier
+  function drawMagnifier(){
+    if(!magOn.checked) return;
+    if(!video.videoWidth || !video.videoHeight || !stageW || !stageH) return;
+
+    // focus rect center -> video pixel center
+    const vpos = stageXYToVideoXY(focus.x, focus.y);
+    if(!vpos) return;
+
+    const mz = Number(magZoom.value);
+    const outW = magCanvas.width;
+    const outH = magCanvas.height;
+
+    // cropping size in video pixels
+    const cropW = (focus.size / vpos.scale) / mz;
+    const cropH = (focus.size / vpos.scale) / mz;
+
+    const sx = clamp(vpos.x - cropW/2, 0, video.videoWidth - cropW);
+    const sy = clamp(vpos.y - cropH/2, 0, video.videoHeight - cropH);
+
+    magCtx.clearRect(0,0,outW,outH);
+
+    // draw
+    magCtx.imageSmoothingEnabled = true;
+    magCtx.drawImage(video, sx, sy, cropW, cropH, 0, 0, outW, outH);
+
+    // overlay crosshair
+    magCtx.strokeStyle = "rgba(58,123,213,.95)";
+    magCtx.lineWidth = 3;
+    magCtx.strokeRect(6,6,outW-12,outH-12);
+
+    magCtx.strokeStyle = "rgba(232,238,247,.85)";
+    magCtx.lineWidth = 2;
+    magCtx.beginPath();
+    magCtx.moveTo(outW/2, 10); magCtx.lineTo(outW/2, outH-10);
+    magCtx.moveTo(10, outH/2); magCtx.lineTo(outW-10, outH/2);
+    magCtx.stroke();
+
+    magInfo.textContent = `mt ${fmtTime(curMediaTime)} / x${mz.toFixed(1)}`;
+  }
+
+  // ---- events
+  file.addEventListener("change", () => {
+    stopStepPlay();
+    inputMark = null;
+    outputMark = null;
+    markers = [];
+    measures = [];
+    markerSel = -1;
+    vfr = { min: Infinity, max: -Infinity, sum: 0, n: 0 };
+
+    renderMarkers();
+    renderMeasures();
+    updateVfrDisp();
+    updateCurrentSummary();
+
+    const f = file.files?.[0];
+    if(!f) return;
+
+    const url = URL.createObjectURL(f);
+    video.src = url;
+    video.load();
+  });
+
+  video.addEventListener("loadedmetadata", () => {
+    updateSeekMax();
+    enableControls(true);
+
+    // stage size update
+    const ro = new ResizeObserver(() => {
+      // video要素の表示サイズ（transform前のサイズ）をstageW/Hとして扱う
+      stageW = video.clientWidth;
+      stageH = video.clientHeight;
+
+      // 初期フォーカスを中央に
+      if(focus.x === 0 && focus.y === 0){
+        focus.x = stageW/2;
+        focus.y = stageH/2;
+      }
+      updateFocusRect();
+      drawMagnifier();
+    });
+    ro.observe(video);
+
+    startRvfc();
+    updateMagUI();
+  });
+
+  seek.addEventListener("input", async () => {
+    stopStepPlay();
+    await seekTo(Number(seek.value));
+  });
+
+  zoom.addEventListener("input", () => {
+    viewScale = Number(zoom.value);
+    zoomVal.textContent = `${viewScale.toFixed(2)}x`;
+    updateStageTransform();
+  });
+
+  rotL.addEventListener("click", () => {
+    rotation = (rotation - 90) % 360;
+    updateStageTransform();
+  });
+  rotR.addEventListener("click", () => {
+    rotation = (rotation + 90) % 360;
+    updateStageTransform();
+  });
+
+  magOn.addEventListener("change", () => updateMagUI());
+  magZoom.addEventListener("input", () => { updateMagUI(); drawMagnifier(); });
+  magSize.addEventListener("input", () => { updateMagUI(); updateFocusRect(); drawMagnifier(); });
+
+  toStart.addEventListener("click", async () => { stopStepPlay(); await seekTo(0); });
+  toEnd.addEventListener("click", async () => { stopStepPlay(); await seekTo(video.duration || 0); });
+
+  stepBack.addEventListener("click", async () => stepAdjacent(-1));
+  stepFwd.addEventListener("click", async () => stepAdjacent(+1));
+
+  pauseBtn.addEventListener("click", () => { stopStepPlay(); video.pause(); });
+
+  stepPlay.addEventListener("click", () => {
+    if(stepTimer){
+      stopStepPlay();
+      return;
+    }
+    video.pause();
+    stepPlay.textContent = "■ 1秒に1コマ（停止）";
+    stepTimer = setInterval(() => stepAdjacent(+1), 1000);
+  });
+
+  markInput.addEventListener("click", () => {
+    if(curMediaTime == null) return;
+    inputMark = { t: curMediaTime, at: new Date(), kind:"input" };
+    pushMarker("input", curMediaTime);
+    updateCurrentSummary();
+
+    // 反映が既にあれば測定履歴を追加
+    if(outputMark) pushMeasure();
+  });
+
+  markOutput.addEventListener("click", () => {
+    if(curMediaTime == null) return;
+    outputMark = { t: curMediaTime, at: new Date(), kind:"output" };
+    pushMarker("output", curMediaTime);
+    updateCurrentSummary();
+
+    // 入力が既にあれば測定履歴を追加
+    if(inputMark) pushMeasure();
+  });
+
+  clearCurrent.addEventListener("click", () => {
+    inputMark = null;
+    outputMark = null;
+    updateCurrentSummary();
+    updateNowLabels();
+  });
+
+  prevMarker.addEventListener("click", async () => {
+    if(markers.length === 0) return;
+    const next = markerSel <= 0 ? 0 : markerSel - 1;
+    await jumpToMarker(next);
+  });
+
+  nextMarker.addEventListener("click", async () => {
+    if(markers.length === 0) return;
+    const next = markerSel < 0 ? 0 : Math.min(markers.length - 1, markerSel + 1);
+    await jumpToMarker(next);
+  });
+
+  resetVfr.addEventListener("click", () => {
+    vfr = { min: Infinity, max: -Infinity, sum: 0, n: 0 };
+    updateVfrDisp();
+  });
+
+  copyCurrent.addEventListener("click", async () => {
+    let text = `SF6 入力→表示\n`;
+    text += `input: ${inputMark ? fmtTime(inputMark.t) : "—"}\n`;
+    text += `output: ${outputMark ? fmtTime(outputMark.t) : "—"}\n`;
+    if(inputMark && outputMark){
+      const deltaMs = (outputMark.t - inputMark.t) * 1000;
+      text += `delta: ${deltaMs.toFixed(3)} ms\n`;
+      text += `(fps参考: ${getFpsRef()})\n`;
+    }
+    try{
+      await navigator.clipboard.writeText(text);
+      alert("コピーしました");
+    } catch {
+      prompt("コピーできない場合はここから手動コピーしてください", text);
+    }
+  });
+
+  markerList.addEventListener("click", async (e) => {
+    const el = e.target.closest(".item");
+    if(!el) return;
+    const idx = Number(el.dataset.idx);
+    if(Number.isFinite(idx)) await jumpToMarker(idx);
+  });
+
+  // stage tap/drag -> move focus rect
+  let dragging = false;
+  stage.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    stage.setPointerCapture(e.pointerId);
+    const p = clientToStageXY(e.clientX, e.clientY);
+    focus.x = clamp(p.x, 0, stageW);
+    focus.y = clamp(p.y, 0, stageH);
+    updateFocusRect();
+    drawMagnifier();
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if(!dragging) return;
+    const p = clientToStageXY(e.clientX, e.clientY);
+    focus.x = clamp(p.x, 0, stageW);
+    focus.y = clamp(p.y, 0, stageH);
+    updateFocusRect();
+    drawMagnifier();
+  });
+  stage.addEventListener("pointerup", () => { dragging = false; });
+
+  // keyboard shortcuts
+  window.addEventListener("keydown", (e) => {
+    if(e.target && ["INPUT","SELECT","TEXTAREA"].includes(e.target.tagName)) return;
+
+    if(e.code === "ArrowLeft"){ e.preventDefault(); stepAdjacent(-1); }
+    if(e.code === "ArrowRight"){ e.preventDefault(); stepAdjacent(+1); }
+
+    if(e.code === "KeyI"){ e.preventDefault(); markInput.click(); }
+    if(e.code === "KeyO"){ e.preventDefault(); markOutput.click(); }
+
+    if(e.code === "KeyJ"){ e.preventDefault(); prevMarker.click(); }
+    if(e.code === "KeyK"){ e.preventDefault(); nextMarker.click(); }
+
+    if(e.code === "Space"){ e.preventDefault(); stepPlay.click(); }
+  });
+
+  // init
+  enableControls(false);
+  renderMarkers();
+  renderMeasures();
+  updateMagUI();
+  updateStageTransform();
+  updateVfrDisp();
+})();
+</script>
+</body>
+</html>
