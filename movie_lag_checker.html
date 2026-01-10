@@ -315,6 +315,8 @@
   let stageW = 0, stageH = 0; // untransformed stage size (CSS px)
   let rvfcId = null;
   let frameWaiters = [];
+  let frameSeq = 0;                 // フレーム更新カウンタ（レース回避の要）
+  let frameWaiters = [];            // { minSeq, resolve, timer }
 
   let curMeta = null;       // last VideoFrameMetadata
   let curMediaTime = null;  // seconds
@@ -383,32 +385,33 @@
     ].forEach(el => el.disabled = !enabled);
   }
 
-  function waitNextFrame(){
-    return new Promise(resolve => frameWaiters.push(resolve));
-  }
-
-  function stopStepPlay(){
-    if(stepTimer){
-      clearInterval(stepTimer);
-      stepTimer = null;
-      stepPlay.textContent = "▶ 1秒に1コマ";
-    }
+  function waitFrameAfter(seq, timeoutMs = 800){
+    return new Promise((resolve) => {
+      const waiter = { minSeq: seq + 1, resolve: null, timer: null };
+      waiter.resolve = (ok) => {
+        if(waiter.timer) clearTimeout(waiter.timer);
+        resolve(ok);
+      };
+      waiter.timer = setTimeout(() => waiter.resolve(false), timeoutMs);
+      frameWaiters.push(waiter);
+    });
   }
 
   async function seekTo(t){
     const d = Number.isFinite(video.duration) ? video.duration : 0;
     t = clamp(t, 0, d);
 
+    const beforeSeq = frameSeq;
+
     await new Promise(resolve => {
       const onSeeked = () => resolve();
       video.addEventListener("seeked", onSeeked, { once:true });
-      // fastSeekがあれば使う（対応状況は環境依存）
       if(typeof video.fastSeek === "function") video.fastSeek(t);
       else video.currentTime = t;
     });
 
-    // seek後の“表示されたフレーム”を待つ（mediaTime更新を取りに行く）
-    await waitNextFrame().catch(()=>{});
+    // 「seek後に表示されたフレーム」を待つ（レースしない）
+    await waitFrameAfter(beforeSeq, 800);
   }
 
   // 画面上の座標(clientX,clientY)を「transform前のstage座標(x,y)」に変換
@@ -575,26 +578,30 @@
 
   // ---- frame callback loop (mediaTime取得)
   function onFrame(now, meta){
+    frameSeq++;
+
     curMeta = meta;
     curMediaTime = (meta && Number.isFinite(meta.mediaTime)) ? meta.mediaTime : null;
     curCurrentTime = video.currentTime;
 
-    // UI update
     updateNowLabels();
     updateCurrentSummary();
     updateVfrDisp();
     drawMagnifier();
 
-    // resolve waiters
+    // 待っている人を解放（minSeqを満たしたらOK）
     if(frameWaiters.length){
-      const ws = frameWaiters.slice();
-      frameWaiters.length = 0;
-      ws.forEach(fn => fn(meta));
+      const remain = [];
+      for(const w of frameWaiters){
+        if(frameSeq >= w.minSeq) w.resolve(true);
+        else remain.push(w);
+      }
+      frameWaiters = remain;
     }
 
-    // schedule next
     rvfcId = video.requestVideoFrameCallback(onFrame);
   }
+
 
   function startRvfc(){
     if(typeof video.requestVideoFrameCallback !== "function"){
@@ -611,51 +618,58 @@
   async function stepAdjacent(direction){
     if(busy) return;
     busy = true;
+
     try{
       stopStepPlay();
       video.pause();
 
-      const startMT = curMediaTime ?? video.currentTime;
+      const startMT = (curMediaTime ?? video.currentTime);
       const startCT = video.currentTime;
 
       const d = Number.isFinite(video.duration) ? video.duration : 0;
-      if(!d){ busy=false; return; }
+      if(!d) return;
 
-      // 段階的にnudgeを大きくして「別フレーム」に到達するまで探す
+      // iOSのシーク粒度に負けないように「指数的に」増やす
+      // 参考fpsはあくまで初期値の目安に使う
+      let delta = (1 / getFpsRef()) * 0.6;  // 秒（例: 240fpsなら約2.5msから開始）
       let changed = false;
-      let lastMT = startMT;
 
-      for(let i=0; i<40; i++){
-        const nudge = (0.0005 * (i+1)); // 0.5ms刻みで拡大
-        const target = clamp(startCT + direction * nudge, 0, d);
+      for(let i=0; i<18; i++){
+        const target = clamp(startCT + direction * delta, 0, d);
 
         await seekTo(target);
 
-        const mt = curMediaTime ?? video.currentTime;
-        if(Math.abs(mt - startMT) > 1e-9){
+        const mt = (curMediaTime ?? video.currentTime);
+
+        if(Number.isFinite(mt) && Math.abs(mt - startMT) > 1e-9){
           changed = true;
 
-          // コマ送り時のΔmsをVFR統計に入れる（表示されたフレーム間隔ベース）
-          const dtMs = Math.abs((mt - lastMT) * 1000);
+          // コマ送りで進んだ“実フレーム間隔”をVFR統計へ
+          const dtMs = Math.abs((mt - startMT) * 1000);
           if(Number.isFinite(dtMs) && dtMs > 0){
             vfr.min = Math.min(vfr.min, dtMs);
             vfr.max = Math.max(vfr.max, dtMs);
             vfr.sum += dtMs;
             vfr.n += 1;
-            updateVfrDisp();
           }
           break;
         }
+
+        // 進まなければさらに大きく
+        delta *= 1.7;
       }
 
+      // どうしても変わらない場合の最後の一手（大きめに動かす）
       if(!changed){
-        // ここに来るのは、シークが粒度不足 or 近傍にフレ境界が来ない等
-        // それでも“今見えてるフレ”は正しいので、ユーザーの手動で進められる範囲で使う。
+        const fallback = clamp(startCT + direction * 0.05, 0, d); // 50ms
+        await seekTo(fallback);
       }
+
     } finally {
       busy = false;
     }
   }
+
 
   // ---- magnifier
   function drawMagnifier(){
