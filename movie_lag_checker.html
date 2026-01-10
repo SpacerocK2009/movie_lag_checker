@@ -162,8 +162,8 @@
     /* ---- magnifiers (2) */
     .mag {
       position: fixed;
-      width: 220px;
-      height: 220px;
+      width: 220px;        /* ←初期値。JSでmagSizeに合わせて上書きします */
+      height: auto;
       background:#070a10;
       border:1px solid #223049;
       border-radius: 14px;
@@ -171,7 +171,17 @@
       box-shadow: 0 8px 26px rgba(0,0,0,.35);
       z-index: 9999;
       touch-action: none;
+
+      display: flex;
+      flex-direction: column;
     }
+    .mag canvas{
+      display:block;
+      width:100%;
+      height:auto;
+      aspect-ratio: 1 / 1; /* 正方形表示にする */
+    }
+
     .mag.mag-a.active { border-color: rgba(58,123,213,.95); }
     .mag.mag-b.active { border-color: rgba(255,107,107,.95); }
 
@@ -191,7 +201,6 @@
     .magTitle{ font-weight: 600; }
     .magBtns{ margin-left: auto; display:flex; gap: 6px; align-items:center; }
     .mag header button{ padding: 4px 8px; font-size: 12px; border-radius: 10px; }
-    .mag canvas{ display:block; width:100%; height: calc(100% - 30px); }
   </style>
 </head>
 
@@ -564,7 +573,7 @@
     // Just scale to video pixels
     const x = stageX * M.sx;
     const y = stageY * M.sy;
-    return { x, y, scale: M.sx }; // assume uniform scale
+    return { x, y, sx: M.sx, sy: M.sy }; // assume uniform scale
   }
 
   function applyFocusRect(el, f){
@@ -596,6 +605,14 @@
   function updateMagUI(){
     magZoomVal.textContent = `${Number(magZoom.value).toFixed(1)}x`;
     magSizeVal.textContent = `${Number(magSize.value)}px`;
+
+    const win = Number(magSize.value);
+    magA.style.width = `${win}px`;
+    magB.style.width = `${win}px`;
+
+    // 窓サイズ変更後に画面外へはみ出ないようにする（既に関数がある前提）
+    clampMagToViewport(magA);
+    clampMagToViewport(magB);
 
     const on = magOn.checked;
     const hasVideo = !!video.videoWidth && !!video.videoHeight && !!stageW && !!stageH;
@@ -885,8 +902,8 @@
     const outW = canvas.width;
     const outH = canvas.height;
 
-    const cropW = (f.size / vpos.scale) / mz;
-    const cropH = (f.size / vpos.scale) / mz;
+    const cropW = (f.size * vpos.sx) / mz;
+    const cropH = (f.size * vpos.sy) / mz;
 
     const sx = clamp(vpos.x - cropW/2, 0, video.videoWidth - cropW);
     const sy = clamp(vpos.y - cropH/2, 0, video.videoHeight - cropH);
