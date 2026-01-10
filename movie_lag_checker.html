@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>SF6 入力→表示 ラグ計測（VFR対応 / mediaTimeで計算）</title>
+
   <style>
     :root {
       --bg: #05070d;
@@ -16,17 +17,46 @@
       --danger: rgba(255,107,107,.95);
       --shadow: 0 10px 30px rgba(0,0,0,.45);
     }
-    html, body { height: 100%; background: radial-gradient(1200px 800px at 20% 10%, #0e1a2f 0%, #05070d 60%); color: var(--text); margin: 0; font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif; }
+
+    html, body {
+      height: 100%;
+      background: radial-gradient(1200px 800px at 20% 10%, #0e1a2f 0%, #05070d 60%);
+      color: var(--text);
+      margin: 0;
+      font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans JP", sans-serif;
+    }
     * { box-sizing: border-box; }
     h1 { font-size: 18px; margin: 0 0 10px; }
-    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 14px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-    .wrap { max-width: 1080px; margin: 0 auto; padding: 14px; padding-bottom: 40px; }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 14px; padding-bottom: 40px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 14px;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
     .row { display:flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     .row + .row { margin-top: 10px; }
-    .pill { display:flex; align-items:center; gap:8px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); }
+
+    .pill {
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel2);
+    }
     .pill label { font-size: 12px; color: var(--muted); }
+
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     .muted { color: var(--muted); font-size: 12px; }
+    .hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin-top: 8px; }
+
     button, input[type="file"]::file-selector-button {
       border: 1px solid var(--line);
       background: rgba(18, 26, 40, 0.55);
@@ -44,10 +74,10 @@
     button.accent { border-color: rgba(58,123,213,.75); background: rgba(58,123,213,.22); }
     button.danger { border-color: rgba(255,107,107,.75); background: rgba(255,107,107,.18); }
     button.mini { padding: 8px 10px; font-size: 13px; border-radius: 12px; }
+    button.on { border-color: rgba(58,123,213,.95); background: rgba(58,123,213,.30); }
     button:disabled { opacity: 0.45; cursor: not-allowed; transform:none; }
-    select, input[type="range"]{
-      accent-color: var(--accent);
-    }
+
+    select, input[type="range"]{ accent-color: var(--accent); }
     select{
       border: 1px solid var(--line);
       background: rgba(18, 26, 40, 0.55);
@@ -65,6 +95,7 @@
       overflow:hidden;
       box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
     }
+
     .stage-wrap{
       display:flex;
       justify-content:center;
@@ -73,6 +104,8 @@
       min-height: 220px;
       padding: 14px;
     }
+
+    /* Stage is the "viewport". Content inside can rotate/scale without affecting layout. */
     .stage {
       position: relative;
       max-width: 100%;
@@ -80,8 +113,15 @@
       border-radius: 14px;
       overflow:hidden;
       background: #000;
-      touch-action: none;
+      touch-action: none; /* avoid scroll while editing focus */
     }
+
+    #content {
+      position: relative;
+      display: inline-block;
+      transform-origin: center center;
+    }
+
     video{
       display:block;
       max-width: 100%;
@@ -117,21 +157,46 @@
     }
     .bar input[type="range"]{ width: 100%; }
 
+    /* Layout: single column; histories take full width */
     .grid{
       display:grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr;
       gap: 12px;
       margin-top: 10px;
     }
-    @media (max-width: 880px){
-      .grid{ grid-template-columns: 1fr; }
+
+    /* Histories: 2 columns on PC, stacked on narrow screens */
+    .histRow{
+      display:flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      align-items: stretch;
+    }
+    .histCol{
+      flex: 1;
+      min-width: 380px;
     }
 
+    /* Show 10+ items comfortably */
     .list{
-      max-height: 210px;
+      max-height: min(70vh, 720px);
+      min-height: 520px;
       overflow:auto;
       padding-right: 6px;
     }
+
+    @media (max-width: 540px){
+      .histCol{ min-width: 100%; }
+      .list{
+        min-height: 320px;
+        max-height: 55vh;
+      }
+      .bar{
+        flex-wrap: wrap;
+      }
+    }
+
     .item{
       border: 1px solid var(--line);
       background: rgba(18,26,40,.35);
@@ -142,6 +207,7 @@
     }
     .item:hover{ border-color: rgba(88,120,170,.55); }
     .item .top{ display:flex; justify-content:space-between; gap:10px; align-items:center; }
+
     .badge{
       font-size: 12px;
       padding: 2px 8px;
@@ -152,18 +218,10 @@
     .badge.input{ border-color: rgba(58,123,213,.75); color: rgba(58,123,213,1); background: rgba(58,123,213,.10); }
     .badge.output{ border-color: rgba(255,107,107,.75); color: rgba(255,107,107,1); background: rgba(255,107,107,.08); }
 
-    .hint{
-      font-size: 12px;
-      color: var(--muted);
-      line-height: 1.5;
-      margin-top: 8px;
-    }
-
     /* ---- magnifiers (2) */
     .mag {
       position: fixed;
-      width: 220px;        /* ←初期値。JSでmagSizeに合わせて上書きします */
-      height: auto;
+      width: 220px;     /* JS will override by magSize */
       background:#070a10;
       border:1px solid #223049;
       border-radius: 14px;
@@ -171,17 +229,9 @@
       box-shadow: 0 8px 26px rgba(0,0,0,.35);
       z-index: 9999;
       touch-action: none;
-
       display: flex;
       flex-direction: column;
     }
-    .mag canvas{
-      display:block;
-      width:100%;
-      height:auto;
-      aspect-ratio: 1 / 1; /* 正方形表示にする */
-    }
-
     .mag.mag-a.active { border-color: rgba(58,123,213,.95); }
     .mag.mag-b.active { border-color: rgba(255,107,107,.95); }
 
@@ -195,12 +245,18 @@
       background:#0d1320;
       border-bottom:1px solid #223049;
       user-select: none;
-      cursor: move;          /* ドラッグで移動 */
+      cursor: move;
       touch-action: none;
     }
     .magTitle{ font-weight: 600; }
     .magBtns{ margin-left: auto; display:flex; gap: 6px; align-items:center; }
     .mag header button{ padding: 4px 8px; font-size: 12px; border-radius: 10px; }
+    .mag canvas{
+      display:block;
+      width:100%;
+      height:auto;
+      aspect-ratio: 1 / 1;
+    }
   </style>
 </head>
 
@@ -238,31 +294,33 @@
 
         <div class="pill">
           <label for="magZoom">拡大倍率</label>
-          <input id="magZoom" type="range" min="1" max="8" step="0.1" value="4" />
-          <span id="magZoomVal" class="mono">4.0x</span>
+          <input id="magZoom" type="range" min="0.25" max="8" step="0.05" value="1.00" />
+          <span id="magZoomVal" class="mono">1.0x</span>
         </div>
 
         <div class="pill">
           <label for="magSize">拡大範囲</label>
-          <input id="magSize" type="range" min="60" max="260" step="2" value="140" />
-          <span id="magSizeVal" class="mono">140px</span>
+          <input id="magSize" type="range" min="80" max="360" step="2" value="220" />
+          <span id="magSizeVal" class="mono">220px</span>
         </div>
 
         <div class="pill">
           <label>位置選択</label>
           <button id="pickA" class="mini accent" type="button">A:ボタン</button>
           <button id="pickB" class="mini" type="button">B:表示</button>
-          <span id="pickHint" class="muted">→ 動画をタップで移動</span>
+          <span id="pickHint" class="muted">→ 動画をタップで A を移動</span>
         </div>
       </div>
 
       <div class="row">
-        <div class="video-shell" style="width:100%;">
+        <div class="video-shell">
           <div class="stage-wrap">
             <div id="stage" class="stage">
-              <video id="video" playsinline muted preload="auto"></video>
-              <div id="focusRectA" class="focus-rect crosshair focus-a"></div>
-              <div id="focusRectB" class="focus-rect crosshair focus-b"></div>
+              <div id="content">
+                <video id="video" playsinline muted preload="auto"></video>
+                <div id="focusRectA" class="focus-rect crosshair focus-a"></div>
+                <div id="focusRectB" class="focus-rect crosshair focus-b"></div>
+              </div>
             </div>
           </div>
 
@@ -308,77 +366,77 @@
 
       <div class="grid">
         <div class="panel" style="padding:12px;">
-          <div class="row" style="justify-content: space-between;">
-            <div>
+          <div class="row" style="justify-content: space-between; align-items:flex-start;">
+            <div style="flex:1; min-width: 260px;">
               <div class="muted">現在の記録（最後に押した値が正）</div>
               <div id="currentSummary" class="mono" style="margin-top:6px; font-size: 14px; line-height:1.6;"></div>
+              <div class="row" style="margin-top: 8px;">
+                <div class="pill">
+                  <label>VFR揺れ（コマ送り時Δms）</label>
+                  <span id="vfrDisp" class="mono">—</span>
+                </div>
+                <div class="pill">
+                  <label>参考：1フレms</label>
+                  <span id="refFrameMs" class="mono">—</span>
+                </div>
+                <div class="pill">
+                  <label>参考：差分フレ</label>
+                  <span id="refFrames" class="mono">—</span>
+                </div>
+              </div>
             </div>
-            <div style="text-align:right;">
+
+            <div style="flex:1; min-width: 260px; text-align:left;">
               <div class="muted">このアプリの前提</div>
               <div class="hint">
                 iPhoneの高fps動画はVFRになりやすいので、固定FPS前提の「フレ差×(1000/FPS)」はしません。<br/>
-                代わりに requestVideoFrameCallback の mediaTime（秒）で差分を計算します。
+                代わりに requestVideoFrameCallback の mediaTime（秒）で差分を計算します。<br/>
+                ショートカット: ←/→=コマ送り　I=入力記録　O=反映記録　J/K=前/次マーカー　Space=1秒に1コマON/OFF　Esc=追従解除
               </div>
             </div>
           </div>
 
-          <div class="row" style="margin-top: 8px;">
-            <div class="pill">
-              <label>VFR揺れ（コマ送り時Δms）</label>
-              <span id="vfrDisp" class="mono">—</span>
-            </div>
-            <div class="pill">
-              <label>参考：1フレms</label>
-              <span id="refFrameMs" class="mono">—</span>
-            </div>
-            <div class="pill">
-              <label>参考：差分フレ</label>
-              <span id="refFrames" class="mono">—</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel" style="padding:12px;">
-          <div class="muted">ショートカット: ←/→=コマ送り　I=入力記録　O=反映記録　J/K=前/次マーカー　Space=1秒に1コマON/OFF</div>
-          <div class="row" style="margin-top: 10px;">
-            <div class="panel" style="padding:10px; flex: 1;">
+          <div class="histRow">
+            <div class="panel histCol" style="padding:10px;">
               <div class="muted">マーカー履歴（クリックでジャンプ）</div>
               <div id="markerList" class="list" style="margin-top:8px;"></div>
             </div>
-            <div class="panel" style="padding:10px; flex: 1;">
+
+            <div class="panel histCol" style="padding:10px;">
               <div class="muted">測定履歴（入力+反映が揃った瞬間に追加）</div>
               <div id="measureList" class="list" style="margin-top:8px;"></div>
             </div>
           </div>
         </div>
       </div>
+
     </div>
   </div>
 
-<!-- 拡大窓（2つ） -->
-<div id="magA" class="mag mag-a" style="display:none; left: 10px; bottom: 10px;">
-  <header id="magHeaderA">
-    <span class="magTitle">A: ボタン押下</span>
-    <span id="magInfoA" class="mono">—</span>
-    <div class="magBtns">
-      <button id="magSetA" type="button" title="Aの拡大位置を選ぶ">位置</button>
-      <button id="magMarkInput" type="button" class="accent" title="入力を記録">入力</button>
-    </div>
-  </header>
-  <canvas id="magCanvasA" width="400" height="400"></canvas>
-</div>
+  <!-- 拡大窓（2つ） -->
+  <div id="magA" class="mag mag-a" style="display:none; left: 10px; bottom: 10px;">
+    <header id="magHeaderA">
+      <span class="magTitle">A: ボタン押下</span>
+      <span id="magInfoA" class="mono">—</span>
+      <div class="magBtns">
+        <button id="magSetA" type="button" title="Aの拡大位置を追従/固定">位置</button>
+        <button id="magMarkInput" type="button" class="accent" title="入力を記録">入力</button>
+      </div>
+    </header>
+    <canvas id="magCanvasA" width="400" height="400"></canvas>
+  </div>
 
-<div id="magB" class="mag mag-b" style="display:none; right: 10px; bottom: 10px;">
-  <header id="magHeaderB">
-    <span class="magTitle">B: 画面表示</span>
-    <span id="magInfoB" class="mono">—</span>
-    <div class="magBtns">
-      <button id="magSetB" type="button" title="Bの拡大位置を選ぶ">位置</button>
-      <button id="magMarkOutput" type="button" class="accent" title="表示反映を記録">反映</button>
-    </div>
-  </header>
-  <canvas id="magCanvasB" width="400" height="400"></canvas>
-</div>
+  <div id="magB" class="mag mag-b" style="display:none; right: 10px; bottom: 10px;">
+    <header id="magHeaderB">
+      <span class="magTitle">B: 画面表示</span>
+      <span id="magInfoB" class="mono">—</span>
+      <div class="magBtns">
+        <button id="magSetB" type="button" title="Bの拡大位置を追従/固定">位置</button>
+        <button id="magMarkOutput" type="button" class="accent" title="表示反映を記録">反映</button>
+      </div>
+    </header>
+    <canvas id="magCanvasB" width="400" height="400"></canvas>
+  </div>
 
 <script>
 (() => {
@@ -388,6 +446,8 @@
   const file = $("file");
   const video = $("video");
   const stage = $("stage");
+  const content = $("content");
+
   const focusRectA = $("focusRectA");
   const focusRectB = $("focusRectB");
 
@@ -398,13 +458,11 @@
   const rotR = $("rotR");
 
   const magOn = $("magOn");
-
-  // 位置選択（どちらの拡大位置を動かすか）
   const pickA = $("pickA");
   const pickB = $("pickB");
   const pickHint = $("pickHint");
 
-  // 拡大窓 A/B
+  // magnifiers
   const magA = $("magA");
   const magCanvasA = $("magCanvasA");
   const magCtxA = magCanvasA.getContext("2d");
@@ -426,6 +484,7 @@
   const magSize = $("magSize");
   const magSizeVal = $("magSizeVal");
 
+  // controls
   const seek = $("seek");
   const seekNow = $("seekNow");
   const toStart = $("toStart");
@@ -441,10 +500,8 @@
   const markInput = $("markInput");
   const markOutput = $("markOutput");
   const clearCurrent = $("clearCurrent");
-
   const prevMarker = $("prevMarker");
   const nextMarker = $("nextMarker");
-
   const copyCurrent = $("copyCurrent");
   const resetVfr = $("resetVfr");
 
@@ -458,37 +515,40 @@
 
   // ---- state
   let rotation = 0;         // degrees
-  let viewZoom = 1.00;      // stage transform zoom
-  let stageW = 0;           // CSS px (untransformed)
+  let viewZoom = 1.00;      // transform zoom on #content
+  let stageW = 0;           // untransformed stage content size in CSS px
   let stageH = 0;
 
-  // rvfc
   let rvfcId = null;
 
-  // last VideoFrameMetadata
   let curMeta = null;
-  let curMediaTime = null;  // seconds
+  let curMediaTime = null;  // seconds (from mediaTime)
   let curCurrentTime = null;
 
   let stepTimer = null;
   let busy = false;
   let magDragInit = false;
 
-  // Focus rects (in stage CSS px, untransformed coordinates)
-  let focusA = { x: 0, y: 0, size: 140 };
-  let focusB = { x: 0, y: 0, size: 140 };
-  let activePick = "A"; // "A" or "B"
+  // focus rectangles in untransformed stage coords (CSS px)
+  let focusA = { x: 0, y: 0, size: 220 };
+  let focusB = { x: 0, y: 0, size: 220 };
 
-  // Marks (current)
-  let inputMark = null;   // {t: mediaTimeSec, at: Date, kind:'input'}
-  let outputMark = null;  // {t: mediaTimeSec, at: Date, kind:'output'}
+  let activePick = "A"; // manual tap/drag target: "A" or "B"
 
-  // History
-  let markers = [];       // {id, kind, t, createdAt}
+  // Follow mode (toggle from magnifier "位置" button):
+  // null | "A" | "B"
+  let followMode = null;
+
+  // marks (current)
+  let inputMark = null;    // {t: mediaTimeSec, at: Date}
+  let outputMark = null;
+
+  // histories
+  let markers = [];        // {id, kind, t, createdAt}
   let markerSel = -1;
-  let measures = [];      // {id, inputT, outputT, deltaMs, createdAt}
+  let measures = [];       // {id, inputT, outputT, deltaMs, createdAt}
 
-  // VFR stats (only for "step" actions)
+  // VFR stats (only for stepAdjacent)
   let vfr = { min: Infinity, max: -Infinity, sum: 0, n: 0 };
 
   // ---- utils
@@ -510,42 +570,39 @@
   }
 
   function enableControls(on){
-    const btns = [toStart,toEnd,stepBack,stepFwd,stepPlay,pauseBtn,seek,markInput,markOutput,clearCurrent,prevMarker,nextMarker,copyCurrent,resetVfr];
+    const btns = [
+      toStart,toEnd,stepBack,stepFwd,stepPlay,pauseBtn,seek,
+      markInput,markOutput,clearCurrent,prevMarker,nextMarker,copyCurrent,resetVfr
+    ];
     btns.forEach(b => b.disabled = !on);
   }
 
   function updateStageTransform(){
     viewZoom = Number(zoom.value);
     zoomVal.textContent = `${viewZoom.toFixed(2)}x`;
-
     const t = `rotate(${rotation}deg) scale(${viewZoom})`;
-    video.style.transformOrigin = "center center";
-    video.style.transform = t;
+    content.style.transformOrigin = "center center";
+    content.style.transform = t;
+  }
 
-    // focus rects are in stage coordinates; keep them aligned by applying same transform to video only.
-    // We compute stage<->video mapping with rotation+zoom.
+  function updateStageSize(){
+    // stage content size equals #content layout size (untransformed)
+    stageW = content.clientWidth || video.clientWidth || stage.clientWidth || 0;
+    stageH = content.clientHeight || video.clientHeight || stage.clientHeight || 0;
   }
 
   function stageToVideoMatrix(){
-    // Map stage (CSS px, untransformed) to video pixel coords.
-    // We use client sizes rather than transformed sizes.
     const vw = video.videoWidth || 0;
     const vh = video.videoHeight || 0;
     if(!vw || !vh || !stageW || !stageH) return null;
-
-    // scale from stage CSS px to video px (before rotation/zoom)
-    const sx = vw / stageW;
-    const sy = vh / stageH;
-
-    return { sx, sy };
+    return { sx: vw / stageW, sy: vh / stageH };
   }
 
   function clientToStageXY(clientX, clientY){
     const r = stage.getBoundingClientRect();
-    // stage rect includes padding? stage itself, so okay.
     const x = clientX - r.left;
     const y = clientY - r.top;
-    // Undo viewZoom and rotation around center for mapping pointer to "untransformed stage coords"
+
     const cx = r.width / 2;
     const cy = r.height / 2;
 
@@ -568,12 +625,7 @@
   function stageXYToVideoXY(stageX, stageY){
     const M = stageToVideoMatrix();
     if(!M) return null;
-
-    // convert stage coords -> unrotated/unscaled stage coords centered? Stage coords are already in untransformed space.
-    // Just scale to video pixels
-    const x = stageX * M.sx;
-    const y = stageY * M.sy;
-    return { x, y, sx: M.sx, sy: M.sy }; // assume uniform scale
+    return { x: stageX * M.sx, y: stageY * M.sy, sx: M.sx, sy: M.sy };
   }
 
   function applyFocusRect(el, f){
@@ -600,43 +652,6 @@
     applyFocusRect(focusRectA, focusA);
     applyFocusRect(focusRectB, focusB);
     updateActivePickUI();
-  }
-
-  function updateMagUI(){
-    magZoomVal.textContent = `${Number(magZoom.value).toFixed(1)}x`;
-    magSizeVal.textContent = `${Number(magSize.value)}px`;
-
-    const on = magOn.checked;
-    const hasVideo = !!video.videoWidth && !!video.videoHeight && !!stageW && !!stageH;
-    const visible = on && hasVideo;
-
-    // 先に表示状態を確定（←ここが重要：非表示のまま位置計算しない）
-    magA.style.display = visible ? "" : "none";
-    magB.style.display = visible ? "" : "none";
-    focusRectA.style.display = visible ? "" : "none";
-    focusRectB.style.display = visible ? "" : "none";
-
-    // サイズ反映
-    const win = Number(magSize.value);
-    magA.style.width = `${win}px`;
-    magB.style.width = `${win}px`;
-
-    // Canvas内部解像度を窓サイズに追従（高DPIでの違和感対策）
-    const dpr = window.devicePixelRatio || 1;
-    const px = Math.max(64, Math.round(win * dpr));
-    magCanvasA.width = px; magCanvasA.height = px;
-    magCanvasB.width = px; magCanvasB.height = px;
-
-    // ★ visible の時だけ位置補正（display:none の rect=0 問題を回避）
-    if(visible){
-      // right/bottom指定の初期位置を left/top に変換してからクランプ
-      normalizeMagPosition(magA);
-      normalizeMagPosition(magB);
-      clampMagToViewport(magA);
-      clampMagToViewport(magB);
-    }
-
-    updateFocusRects();
   }
 
   function updateSeekMax(){
@@ -671,6 +686,7 @@
     const fps = getFpsRef();
     const ms = 1000 / fps;
     refFrameMs.textContent = `${ms.toFixed(3)} ms`;
+
     if(inputMark && outputMark){
       const delta = (outputMark.t - inputMark.t) * 1000;
       refFrames.textContent = `${(delta/ms).toFixed(2)} f`;
@@ -702,7 +718,6 @@
       markerList.innerHTML = `<div class="muted">まだマーカーがありません</div>`;
       return;
     }
-
     markers.slice().reverse().forEach((m, idxRev) => {
       const idx = markers.length - 1 - idxRev;
       const el = document.createElement("div");
@@ -745,19 +760,50 @@
   }
 
   function pushMarker(kind, t){
-    const id = safeUUID();
-    markers.push({ id, kind, t, createdAt: Date.now() });
+    markers.push({ id: safeUUID(), kind, t, createdAt: Date.now() });
     renderMarkers();
   }
 
   function pushMeasure(inputT, outputT){
-    const id = safeUUID();
-    const deltaMs = (outputT - inputT) * 1000;
-    measures.push({ id, inputT, outputT, deltaMs, createdAt: Date.now() });
+    measures.push({
+      id: safeUUID(),
+      inputT, outputT,
+      deltaMs: (outputT - inputT) * 1000,
+      createdAt: Date.now()
+    });
     renderMeasures();
   }
 
-  // ---- rvfc
+  // ---- follow mode (magnifier "位置" toggles)
+  function setFollowMode(whichOrNull){
+    followMode = whichOrNull; // null | "A" | "B"
+    if(followMode) activePick = followMode;
+
+    magSetA.textContent = (followMode === "A") ? "固定" : "位置";
+    magSetB.textContent = (followMode === "B") ? "固定" : "位置";
+
+    magSetA.classList.toggle("on", followMode === "A");
+    magSetB.classList.toggle("on", followMode === "B");
+
+    if(followMode === "A"){
+      pickHint.textContent = "→ A 追従中：マウス移動で追従、もう一度「固定」で確定（スマホはタップ/ドラッグで追従）";
+    }else if(followMode === "B"){
+      pickHint.textContent = "→ B 追従中：マウス移動で追従、もう一度「固定」で確定（スマホはタップ/ドラッグで追従）";
+    }else{
+      pickHint.textContent = (activePick === "A")
+        ? "→ 動画をタップで A を移動"
+        : "→ 動画をタップで B を移動";
+    }
+
+    updateActivePickUI();
+  }
+
+  function toggleFollow(which){
+    if(followMode === which) setFollowMode(null);
+    else setFollowMode(which);
+  }
+
+  // ---- rvfc waiters (race-safe)
   let frameSeq = 0;
   let frameWaiters = [];
 
@@ -785,7 +831,6 @@
     updateCurrentSummary();
     drawMagnifiers();
 
-    // release waiters
     if(frameWaiters.length){
       const remain = [];
       for(const w of frameWaiters){
@@ -800,8 +845,9 @@
 
   function startRvfc(){
     if(rvfcId != null) return;
+
     if(typeof video.requestVideoFrameCallback !== "function"){
-      // Fallback: update via rAF (less accurate for VFR)
+      // fallback (less accurate)
       const tick = () => {
         curCurrentTime = video.currentTime;
         curMediaTime = video.currentTime;
@@ -814,17 +860,8 @@
       rvfcId = requestAnimationFrame(tick);
       return;
     }
-    rvfcId = video.requestVideoFrameCallback(onFrame);
-  }
 
-  function stopRvfc(){
-    if(rvfcId == null) return;
-    if(typeof video.cancelVideoFrameCallback === "function"){
-      try{ video.cancelVideoFrameCallback(rvfcId); }catch{}
-    }else{
-      cancelAnimationFrame(rvfcId);
-    }
-    rvfcId = null;
+    rvfcId = video.requestVideoFrameCallback(onFrame);
   }
 
   async function seekTo(t){
@@ -894,89 +931,12 @@
         const fallback = clamp(startCT + direction * 0.05, 0, d);
         await seekTo(fallback);
       }
-
     } finally {
       busy = false;
     }
   }
 
-  // ---- magnifiers
-  function drawMagnifierOne(which, f, magEl, canvas, ctx, infoEl){
-    if(!magOn.checked) return;
-    if(magEl.style.display === "none") return;
-    if(!video.videoWidth || !video.videoHeight || !stageW || !stageH) return;
-
-    const vpos = stageXYToVideoXY(f.x, f.y);
-    if(!vpos) return;
-
-    const mz = Number(magZoom.value);
-    const outW = canvas.width;
-    const outH = canvas.height;
-
-    const cropW = (f.size * vpos.sx) / mz;
-    const cropH = (f.size * vpos.sy) / mz;
-
-    const sx = clamp(vpos.x - cropW/2, 0, video.videoWidth - cropW);
-    const sy = clamp(vpos.y - cropH/2, 0, video.videoHeight - cropH);
-
-    ctx.clearRect(0,0,outW,outH);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, outW, outH);
-
-    ctx.strokeStyle = (which === "A") ? "rgba(58,123,213,.95)" : "rgba(255,107,107,.95)";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(6,6,outW-12,outH-12);
-
-    ctx.strokeStyle = "rgba(232,238,247,.85)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(outW/2, 10); ctx.lineTo(outW/2, outH-10);
-    ctx.moveTo(10, outH/2); ctx.lineTo(outW-10, outH/2);
-    ctx.stroke();
-
-    infoEl.textContent = `mt ${fmtTime(curMediaTime)} / x${mz.toFixed(1)}`;
-  }
-
-  function drawMagnifiers(){
-    if(!magOn.checked) return;
-    drawMagnifierOne("A", focusA, magA, magCanvasA, magCtxA, magInfoA);
-    drawMagnifierOne("B", focusB, magB, magCanvasB, magCtxB, magInfoB);
-  }
-
-  // ---- events
-  zoom.addEventListener("input", () => updateStageTransform());
-  rotL.addEventListener("click", () => { rotation = (rotation - 90) % 360; updateStageTransform(); });
-  rotR.addEventListener("click", () => { rotation = (rotation + 90) % 360; updateStageTransform(); });
-
-  magOn.addEventListener("change", () => updateMagUI());
-  magZoom.addEventListener("input", () => { updateMagUI(); drawMagnifiers(); });
-  magSize.addEventListener("input", () => { updateMagUI(); drawMagnifiers(); });
-
-  // ---- 2つの拡大窓：位置選択
-  function setActivePick(which){
-    activePick = (which === "B") ? "B" : "A";
-    updateActivePickUI();
-    pickHint.textContent = activePick === "A"
-      ? "→ 動画をタップで A を移動"
-      : "→ 動画をタップで B を移動";
-  }
-
-  pickA.addEventListener("click", () => setActivePick("A"));
-  pickB.addEventListener("click", () => setActivePick("B"));
-  magSetA.addEventListener("click", () => setActivePick("A"));
-  magSetB.addEventListener("click", () => setActivePick("B"));
-
-  // 拡大窓から即記録（押しやすい）
-  magMarkInput.addEventListener("click", () => markInput.click());
-  magMarkOutput.addEventListener("click", () => markOutput.click());
-
-  // キーボード（PC用）：1=A、2=B
-  window.addEventListener("keydown", (e) => {
-    if(e.key === "1") setActivePick("A");
-    if(e.key === "2") setActivePick("B");
-  });
-
-  // ---- 拡大窓をドラッグで移動（位置を保存）
+  // ---- magnifier windows (draggable + stored)
   function normalizeMagPosition(el){
     const r = el.getBoundingClientRect();
     el.style.left = `${r.left}px`;
@@ -986,6 +946,8 @@
   }
 
   function clampMagToViewport(el){
+    el.style.right = "auto";
+    el.style.bottom = "auto";
     const r = el.getBoundingClientRect();
     const pad = 6;
     let x = r.left, y = r.top;
@@ -1054,11 +1016,107 @@
     headerEl.addEventListener("pointercancel", onUp);
   }
 
-  toStart.addEventListener("click", async () => { stopStepPlay(); await seekTo(0); });
-  toEnd.addEventListener("click", async () => { stopStepPlay(); await seekTo(video.duration || 0); });
+  function updateMagUI(){
+    magZoomVal.textContent = `${Number(magZoom.value).toFixed(1)}x`;
+    magSizeVal.textContent = `${Number(magSize.value)}px`;
 
-  stepBack.addEventListener("click", async () => { await stepAdjacent(-1); });
-  stepFwd.addEventListener("click", async () => { await stepAdjacent(+1); });
+    const on = magOn.checked;
+    const hasVideo = !!video.videoWidth && !!video.videoHeight && !!stageW && !!stageH;
+    const visible = on && hasVideo;
+
+    // set display first (avoid rect=0 issues while hidden)
+    magA.style.display = visible ? "" : "none";
+    magB.style.display = visible ? "" : "none";
+    focusRectA.style.display = visible ? "" : "none";
+    focusRectB.style.display = visible ? "" : "none";
+
+    const win = Number(magSize.value);
+    magA.style.width = `${win}px`;
+    magB.style.width = `${win}px`;
+
+    // canvas internal resolution follows size (DPR)
+    const dpr = window.devicePixelRatio || 1;
+    const px = Math.max(64, Math.round(win * dpr));
+    magCanvasA.width = px; magCanvasA.height = px;
+    magCanvasB.width = px; magCanvasB.height = px;
+
+    if(visible){
+      normalizeMagPosition(magA);
+      normalizeMagPosition(magB);
+      clampMagToViewport(magA);
+      clampMagToViewport(magB);
+    }
+
+    updateFocusRects();
+  }
+
+  function drawMagnifierOne(which, f, magEl, canvas, ctx, infoEl){
+    if(!magOn.checked) return;
+    if(magEl.style.display === "none") return;
+    if(!video.videoWidth || !video.videoHeight || !stageW || !stageH) return;
+
+    const vpos = stageXYToVideoXY(f.x, f.y);
+    if(!vpos) return;
+
+    const mz = Number(magZoom.value);
+    const outW = canvas.width;
+    const outH = canvas.height;
+
+    // correct mapping: stage px -> video px, then apply zoom
+    const cropW = (f.size * vpos.sx) / mz;
+    const cropH = (f.size * vpos.sy) / mz;
+
+    const sx = clamp(vpos.x - cropW/2, 0, video.videoWidth - cropW);
+    const sy = clamp(vpos.y - cropH/2, 0, video.videoHeight - cropH);
+
+    ctx.clearRect(0,0,outW,outH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(video, sx, sy, cropW, cropH, 0, 0, outW, outH);
+
+    ctx.strokeStyle = (which === "A") ? "rgba(58,123,213,.95)" : "rgba(255,107,107,.95)";
+    ctx.lineWidth = Math.max(2, Math.round(outW * 0.008));
+    ctx.strokeRect(6,6,outW-12,outH-12);
+
+    ctx.strokeStyle = "rgba(232,238,247,.85)";
+    ctx.lineWidth = Math.max(1, Math.round(outW * 0.005));
+    ctx.beginPath();
+    ctx.moveTo(outW/2, 10); ctx.lineTo(outW/2, outH-10);
+    ctx.moveTo(10, outH/2); ctx.lineTo(outW-10, outH/2);
+    ctx.stroke();
+
+    infoEl.textContent = `mt ${fmtTime(curMediaTime)} / x${mz.toFixed(2)}`;
+  }
+
+  function drawMagnifiers(){
+    if(!magOn.checked) return;
+    drawMagnifierOne("A", focusA, magA, magCanvasA, magCtxA, magInfoA);
+    drawMagnifierOne("B", focusB, magB, magCanvasB, magCtxB, magInfoB);
+  }
+
+  // ---- events: basic controls
+  zoom.addEventListener("input", () => updateStageTransform());
+  rotL.addEventListener("click", () => { rotation = (rotation - 90) % 360; updateStageTransform(); });
+  rotR.addEventListener("click", () => { rotation = (rotation + 90) % 360; updateStageTransform(); });
+
+  magOn.addEventListener("change", () => { if(!magOn.checked) setFollowMode(null); updateMagUI(); });
+  magZoom.addEventListener("input", () => { updateMagUI(); drawMagnifiers(); });
+  magSize.addEventListener("input", () => { updateMagUI(); drawMagnifiers(); });
+
+  pickA.addEventListener("click", () => { activePick = "A"; if(!followMode) setFollowMode(null); updateActivePickUI(); pickHint.textContent = "→ 動画をタップで A を移動"; });
+  pickB.addEventListener("click", () => { activePick = "B"; if(!followMode) setFollowMode(null); updateActivePickUI(); pickHint.textContent = "→ 動画をタップで B を移動"; });
+
+  // magnifier buttons
+  magSetA.addEventListener("click", () => toggleFollow("A"));
+  magSetB.addEventListener("click", () => toggleFollow("B"));
+  magMarkInput.addEventListener("click", () => markInput.click());
+  magMarkOutput.addEventListener("click", () => markOutput.click());
+
+  // seek & playback
+  toStart.addEventListener("click", async () => { stopStepPlay(); setFollowMode(null); await seekTo(0); });
+  toEnd.addEventListener("click", async () => { stopStepPlay(); setFollowMode(null); await seekTo(video.duration || 0); });
+
+  stepBack.addEventListener("click", async () => { setFollowMode(null); await stepAdjacent(-1); });
+  stepFwd.addEventListener("click", async () => { setFollowMode(null); await stepAdjacent(+1); });
 
   pauseBtn.addEventListener("click", () => { stopStepPlay(); video.pause(); });
 
@@ -1074,10 +1132,12 @@
 
   seek.addEventListener("input", async () => {
     stopStepPlay();
+    setFollowMode(null);
     const t = Number(seek.value);
     await seekTo(t);
   });
 
+  // marks
   markInput.addEventListener("click", () => {
     if(curMediaTime == null) return;
     inputMark = { t: curMediaTime, at: new Date(), kind:"input" };
@@ -1104,6 +1164,7 @@
 
   prevMarker.addEventListener("click", async () => {
     stopStepPlay();
+    setFollowMode(null);
     if(!markers.length) return;
     markerSel = (markerSel <= 0) ? (markers.length - 1) : (markerSel - 1);
     await seekTo(markers[markerSel].t);
@@ -1111,6 +1172,7 @@
 
   nextMarker.addEventListener("click", async () => {
     stopStepPlay();
+    setFollowMode(null);
     if(!markers.length) return;
     markerSel = (markerSel >= markers.length - 1) ? 0 : (markerSel + 1);
     await seekTo(markers[markerSel].t);
@@ -1136,8 +1198,11 @@ deltaMs: ${deltaMs != null ? deltaMs.toFixed(2) : "—"} ms`;
     updateVfrDisp();
   });
 
+  // ---- file load
   file.addEventListener("change", async () => {
     stopStepPlay();
+    setFollowMode(null);
+
     inputMark = null;
     outputMark = null;
     markers = [];
@@ -1164,6 +1229,7 @@ deltaMs: ${deltaMs != null ? deltaMs.toFixed(2) : "—"} ms`;
     video.playsInline = true;
     video.load();
 
+    // prime play to force metadata decoding in some environments
     try{
       await video.play();
       video.pause();
@@ -1182,29 +1248,24 @@ deltaMs: ${deltaMs != null ? deltaMs.toFixed(2) : "—"} ms`;
     enableControls(true);
     updateSeekMax();
 
-    // stageW/H: video element client size (untransformed)
+    // observe content size changes
     const ro = new ResizeObserver(() => {
       requestAnimationFrame(() => {
-        stageW = video.clientWidth;
-        stageH = video.clientHeight;
+        updateStageSize();
 
         if((focusA.x === 0 && focusA.y === 0) && (focusB.x === 0 && focusB.y === 0)){
           focusA.x = stageW * 0.35;
-          focusA.y = stageH * 0.50;
+          focusA.y = stageH * 0.55;
           focusB.x = stageW * 0.65;
-          focusB.y = stageH * 0.50;
+          focusB.y = stageH * 0.45;
         }
-        updateFocusRects();
-        drawMagnifiers();
         updateMagUI();
+        drawMagnifiers();
       });
     });
-    ro.observe(video);
+    ro.observe(content);
 
-    startRvfc();
-    updateMagUI();
-
-    // 拡大窓ドラッグ＆位置復元
+    // init draggable magnifiers + restore positions
     restoreMagPos("magA_pos", magA);
     restoreMagPos("magB_pos", magB);
     if(!magDragInit){
@@ -1213,40 +1274,95 @@ deltaMs: ${deltaMs != null ? deltaMs.toFixed(2) : "—"} ms`;
       magDragInit = true;
     }
 
-    // 初期はAを選択
-    setActivePick("A");
+    updateStageSize();
+    updateStageTransform();
+    updateMagUI();
+    startRvfc();
+    setFollowMode(null);
   });
 
-  // stage tap/drag -> move active focus rect
+  // window resize: clamp magnifiers if visible
+  window.addEventListener("resize", () => {
+    const visible = magA.style.display !== "none";
+    if(visible){
+      normalizeMagPosition(magA);
+      normalizeMagPosition(magB);
+      clampMagToViewport(magA);
+      clampMagToViewport(magB);
+    }
+  });
+
+  // ---- stage interaction (tap/drag + follow)
   let dragging = false;
+
   stage.addEventListener("pointerdown", (e) => {
     if(!stageW || !stageH) return;
+
+    const p = clientToStageXY(e.clientX, e.clientY);
+
+    // follow mode: tap updates position; on touch, drag also works via pointermove
+    if(followMode){
+      const f = (followMode === "A") ? focusA : focusB;
+      f.x = clamp(p.x, 0, stageW);
+      f.y = clamp(p.y, 0, stageH);
+      updateFocusRects();
+      drawMagnifiers();
+
+      // allow drag-follow on touch
+      dragging = true;
+      stage.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+
+    // normal: drag moves activePick
     dragging = true;
     stage.setPointerCapture(e.pointerId);
-    const p = clientToStageXY(e.clientX, e.clientY);
-    const f = (activePick === "A") ? focusA : focusB;
-    f.x = clamp(p.x, 0, stageW);
-    f.y = clamp(p.y, 0, stageH);
-    updateFocusRects();
-    drawMagnifiers();
-  });
-  stage.addEventListener("pointermove", (e) => {
-    if(!dragging) return;
-    const p = clientToStageXY(e.clientX, e.clientY);
-    const f = (activePick === "A") ? focusA : focusB;
-    f.x = clamp(p.x, 0, stageW);
-    f.y = clamp(p.y, 0, stageH);
-    updateFocusRects();
-    drawMagnifiers();
-  });
-  stage.addEventListener("pointerup", () => { dragging = false; });
 
-  // keyboard shortcuts
+    const f = (activePick === "A") ? focusA : focusB;
+    f.x = clamp(p.x, 0, stageW);
+    f.y = clamp(p.y, 0, stageH);
+    updateFocusRects();
+    drawMagnifiers();
+  });
+
+  stage.addEventListener("pointermove", (e) => {
+    if(!stageW || !stageH) return;
+    const p = clientToStageXY(e.clientX, e.clientY);
+
+    // follow mode: mouse hover / move updates without click; touch drag updates while pressed
+    if(followMode){
+      const f = (followMode === "A") ? focusA : focusB;
+      f.x = clamp(p.x, 0, stageW);
+      f.y = clamp(p.y, 0, stageH);
+      updateFocusRects();
+      drawMagnifiers();
+      return;
+    }
+
+    if(!dragging) return;
+
+    const f = (activePick === "A") ? focusA : focusB;
+    f.x = clamp(p.x, 0, stageW);
+    f.y = clamp(p.y, 0, stageH);
+    updateFocusRects();
+    drawMagnifiers();
+  });
+
+  stage.addEventListener("pointerup", () => { dragging = false; });
+  stage.addEventListener("pointercancel", () => { dragging = false; });
+
+  // ---- keyboard shortcuts
   window.addEventListener("keydown", (e) => {
     if(e.target && ["INPUT","SELECT","TEXTAREA"].includes(e.target.tagName)) return;
 
-    if(e.code === "ArrowLeft"){ e.preventDefault(); stepAdjacent(-1); }
-    if(e.code === "ArrowRight"){ e.preventDefault(); stepAdjacent(+1); }
+    if(e.key === "Escape"){
+      setFollowMode(null);
+      return;
+    }
+
+    if(e.code === "ArrowLeft"){ e.preventDefault(); setFollowMode(null); stepAdjacent(-1); }
+    if(e.code === "ArrowRight"){ e.preventDefault(); setFollowMode(null); stepAdjacent(+1); }
 
     if(e.code === "KeyI"){ e.preventDefault(); markInput.click(); }
     if(e.code === "KeyO"){ e.preventDefault(); markOutput.click(); }
@@ -1257,13 +1373,14 @@ deltaMs: ${deltaMs != null ? deltaMs.toFixed(2) : "—"} ms`;
     if(e.code === "Space"){ e.preventDefault(); stepPlay.click(); }
   });
 
-  // init
+  // ---- init
   enableControls(false);
+  updateStageTransform();
+  updateMagUI();
+  updateVfrDisp();
+  updateCurrentSummary();
   renderMarkers();
   renderMeasures();
-  updateMagUI();
-  updateStageTransform();
-  updateVfrDisp();
 })();
 </script>
 </body>
