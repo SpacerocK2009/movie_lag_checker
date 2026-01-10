@@ -314,7 +314,6 @@
 
   let stageW = 0, stageH = 0; // untransformed stage size (CSS px)
   let rvfcId = null;
-  let frameWaiters = [];
   let frameSeq = 0;                 // フレーム更新カウンタ（レース回避の要）
   let frameWaiters = [];            // { minSeq, resolve, timer }
 
@@ -917,3 +916,4 @@
 </script>
 </body>
 </html>
+
