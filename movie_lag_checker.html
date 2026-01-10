@@ -610,6 +610,13 @@
     magA.style.width = `${win}px`;
     magB.style.width = `${win}px`;
 
+    const dpr = window.devicePixelRatio || 1;
+    const px = Math.max(64, Math.round(win * dpr)); // win=magSize(px)
+    magCanvasA.width = px;
+    magCanvasA.height = px;
+    magCanvasB.width = px;
+    magCanvasB.height = px;
+
     // 窓サイズ変更後に画面外へはみ出ないようにする（既に関数がある前提）
     clampMagToViewport(magA);
     clampMagToViewport(magB);
