@@ -606,31 +606,35 @@
     magZoomVal.textContent = `${Number(magZoom.value).toFixed(1)}x`;
     magSizeVal.textContent = `${Number(magSize.value)}px`;
 
+    const on = magOn.checked;
+    const hasVideo = !!video.videoWidth && !!video.videoHeight && !!stageW && !!stageH;
+    const visible = on && hasVideo;
+
+    // 先に表示状態を確定（←ここが重要：非表示のまま位置計算しない）
+    magA.style.display = visible ? "" : "none";
+    magB.style.display = visible ? "" : "none";
+    focusRectA.style.display = visible ? "" : "none";
+    focusRectB.style.display = visible ? "" : "none";
+
+    // サイズ反映
     const win = Number(magSize.value);
     magA.style.width = `${win}px`;
     magB.style.width = `${win}px`;
 
+    // Canvas内部解像度を窓サイズに追従（高DPIでの違和感対策）
     const dpr = window.devicePixelRatio || 1;
-    const px = Math.max(64, Math.round(win * dpr)); // win=magSize(px)
-    magCanvasA.width = px;
-    magCanvasA.height = px;
-    magCanvasB.width = px;
-    magCanvasB.height = px;
+    const px = Math.max(64, Math.round(win * dpr));
+    magCanvasA.width = px; magCanvasA.height = px;
+    magCanvasB.width = px; magCanvasB.height = px;
 
-    // 窓サイズ変更後に画面外へはみ出ないようにする（既に関数がある前提）
-    clampMagToViewport(magA);
-    clampMagToViewport(magB);
-
-    const on = magOn.checked;
-    const hasVideo = !!video.videoWidth && !!video.videoHeight && !!stageW && !!stageH;
-
-    // 拡大窓の表示/非表示（動画が読み込まれるまでは隠す）
-    magA.style.display = (on && hasVideo) ? "" : "none";
-    magB.style.display = (on && hasVideo) ? "" : "none";
-
-    // フォーカス枠も連動
-    focusRectA.style.display = (on && hasVideo) ? "" : "none";
-    focusRectB.style.display = (on && hasVideo) ? "" : "none";
+    // ★ visible の時だけ位置補正（display:none の rect=0 問題を回避）
+    if(visible){
+      // right/bottom指定の初期位置を left/top に変換してからクランプ
+      normalizeMagPosition(magA);
+      normalizeMagPosition(magB);
+      clampMagToViewport(magA);
+      clampMagToViewport(magB);
+    }
 
     updateFocusRects();
   }
