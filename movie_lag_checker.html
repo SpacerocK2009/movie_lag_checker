@@ -255,14 +255,6 @@
             <option value="15">15 コマ/秒</option>
           </select>
         </div>
-        <div class="pill">
-          <label for="preciseStep">コマ送り精度</label>
-          <select id="preciseStep">
-            <option value="0" selected>通常（軽い）</option>
-            <option value="1">高精度（重い/正確）</option>
-          </select>
-        </div>
-
 
 
         <div class="pill" title="iPhoneのスローモ動画が60fps相当のタイムラインとして扱われる場合、ここをONにすると結果を補正できます（Δms中央値から自動推定）">
@@ -460,7 +452,6 @@
 
   const fpsSel = $("fps");
   const stepRate = $("stepRate");
-  const preciseStep = $("preciseStep");
   const timeScaleOn = $("timeScaleOn");
   const timeScaleLabel = $("timeScaleLabel");
 
@@ -572,8 +563,6 @@
     const v = Number(stepRate?.value || 1);
     return (Number.isFinite(v) && v > 0) ? v : 1;
   };
-
-  const getPreciseStep = () => (preciseStep?.value === "1");
 
   function fmtTime(sec){
     if(sec == null || !Number.isFinite(sec)) return "—";
@@ -941,24 +930,6 @@
       frameWaiters.push(waiter);
     });
   }
-  function waitRvfcOnce(timeoutMs = 700){
-    return new Promise((resolve) => {
-      if(typeof video.requestVideoFrameCallback !== "function"){
-        const id = requestAnimationFrame(() => resolve(false));
-        setTimeout(() => { cancelAnimationFrame(id); resolve(false); }, timeoutMs);
-        return;
-      }
-      let done = false;
-      const timer = setTimeout(() => { if(!done){ done = true; resolve(false); } }, timeoutMs);
-      video.requestVideoFrameCallback(() => {
-        if(done) return;
-        done = true;
-        clearTimeout(timer);
-        resolve(true);
-      });
-    });
-  }
-
 
   function onFrame(now, meta){
     frameSeq++;
@@ -1012,12 +983,11 @@
     await new Promise(resolve => {
       const onSeeked = () => resolve();
       video.addEventListener("seeked", onSeeked, { once:true });
-      // fastSeekは環境によって「粗い位置」に飛ぶことがあるため、基本はcurrentTimeで正確にシークします
-      video.currentTime = t;
+      if(typeof video.fastSeek === "function") video.fastSeek(t);
+      else video.currentTime = t;
     });
 
-    const ok = await waitFrameAfter(beforeSeq, 800);
-    if(!ok) await waitRvfcOnce(700);
+    await waitFrameAfter(beforeSeq, 800);
   }
 
   // ---- step play
@@ -1026,9 +996,8 @@
     const fOn = (stepTimer && stepDir === +1);
     const bOn = (stepTimer && stepDir === -1);
 
-    const tag = getPreciseStep() ? "・精密" : "";
-    stepPlay.textContent = fOn ? `⏱ ▶ コマ送り（${r}コマ/秒）ON${tag}` : `▶ コマ送り（${r}コマ/秒）${tag}`;
-    stepPlayBack.textContent = bOn ? `⏱ ◀ コマ戻し（${r}コマ/秒）ON${tag}` : `◀ コマ戻し（${r}コマ/秒）${tag}`;
+    stepPlay.textContent = fOn ? `⏱ ▶ コマ送り（${r}コマ/秒）ON` : `▶ コマ送り（${r}コマ/秒）`;
+    stepPlayBack.textContent = bOn ? `⏱ ◀ コマ戻し（${r}コマ/秒）ON` : `◀ コマ戻し（${r}コマ/秒）`;
   }
 
   function stopStepPlay(){
@@ -1054,82 +1023,7 @@
     updateStepPlayLabel();
   }
 
-  
-  async function seekToGetMt(t){
-    await seekTo(t);
-    // curMediaTimeが更新されない環境向けに、少しだけ待ってから読み直す
-    const mt = (curMediaTime ?? video.currentTime);
-    return Number.isFinite(mt) ? mt : video.currentTime;
-  }
-
-  async function stepAdjacentPrecise(direction){
-    // 「次のフレーム/前のフレーム」を、シーク＋二分探索で“必ず隣”を掴む
-    const d = Number.isFinite(video.duration) ? video.duration : 0;
-    if(!d) return;
-
-    const startMT = (curMediaTime ?? video.currentTime);
-    const startCT = video.currentTime;
-    const eps = 1e-9;
-
-    // 1) 変化点を括る（指数探索）
-    let step = (1 / getFpsRef()) * 0.6;
-    let prevCT = startCT;
-    let foundLo = null, foundHi = null;
-
-    for(let i=0; i<24; i++){
-      const t = clamp(startCT + direction * step, 0, d);
-      const mt = await seekToGetMt(t);
-
-      if(direction > 0){
-        if(mt > startMT + eps){
-          foundLo = Math.min(prevCT, t);
-          foundHi = Math.max(prevCT, t);
-          break;
-        }
-      }else{
-        if(mt < startMT - eps){
-          foundLo = Math.min(prevCT, t);
-          foundHi = Math.max(prevCT, t);
-          break;
-        }
-      }
-      prevCT = t;
-      step *= 1.7;
-    }
-
-    if(foundLo == null || foundHi == null || Math.abs(foundHi - foundLo) < 1e-6){
-      // 括れなかったら従来のフォールバック
-      const fallback = clamp(startCT + direction * 0.05, 0, d);
-      const mt = await seekToGetMt(fallback);
-      if(Number.isFinite(mt)) observeStepDeltaMs(Math.abs((mt - startMT) * 1000));
-      return;
-    }
-
-    // 2) 二分探索で“隣の変化点”を詰める
-    let lo = foundLo, hi = foundHi;
-
-    // forward: 最小のtで mt > startMT を探す
-    // backward: 最大のtで mt < startMT を探す
-    const iters = 10; // 負荷と精度のバランス
-    for(let i=0; i<iters; i++){
-      const mid = (lo + hi) / 2;
-      const mt = await seekToGetMt(mid);
-
-      if(direction > 0){
-        if(mt > startMT + eps) hi = mid;
-        else lo = mid;
-      }else{
-        if(mt < startMT - eps) lo = mid;
-        else hi = mid;
-      }
-    }
-
-    const target = (direction > 0) ? hi : lo;
-    const mt2 = await seekToGetMt(target);
-    if(Number.isFinite(mt2)) observeStepDeltaMs(Math.abs((mt2 - startMT) * 1000));
-  }
-
-  async function stepAdjacentNormal(direction, fromAuto = false){
+  async function stepAdjacent(direction, fromAuto = false){
     if(busy) return;
     busy = true;
 
@@ -1168,30 +1062,6 @@
       busy = false;
     }
   }
-
-
-
-  async function stepAdjacent(direction, fromAuto = false){
-    if(busy) return;
-    busy = true;
-
-    try{
-      if(!fromAuto) stopStepPlay();
-      video.pause();
-
-      // 高精度モード時は「連続コマ送り」は負荷が高いので、自動再生中は通常方式に落とします
-      const precise = getPreciseStep() && !fromAuto;
-
-      if(precise){
-        await stepAdjacentPrecise(direction);
-      }else{
-        await stepAdjacentNormal(direction, fromAuto);
-      }
-    } finally {
-      busy = false;
-    }
-  }
-
 
   // ---- Magnifier window positioning (drag only)
   const DRAG_THRESHOLD_PX = 4;
@@ -1392,17 +1262,6 @@
     }
     updateStepPlayLabel();
   });
-  preciseStep.addEventListener("change", () => {
-    // 高精度は負荷が上がるので、連続コマ送り速度が高い場合は控えめにする
-    if(getPreciseStep()){
-      const r = getStepRate();
-      if(r > 5){
-        stepRate.value = "5";
-      }
-    }
-    updateStepPlayLabel();
-  });
-
   timeScaleOn.addEventListener("change", () => { updateTimeScaleUI(); updateCurrentSummary(); renderMeasures(); });
 
   zoom.addEventListener("input", () => updateStageTransform());
