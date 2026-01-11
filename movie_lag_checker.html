@@ -530,7 +530,8 @@
   let curMediaTime = null; // seconds (from mediaTime)
   let curCurrentTime = null;
 
-  let stepTimer = null;
+  let stepLoopToken = 0;
+  let stepLoopRunning = false;
   let stepDir = +1; // +1: forward, -1: backward
   let busy = false;
 
@@ -993,34 +994,57 @@
   // ---- step play
   function updateStepPlayLabel(){
     const r = getStepRate();
-    const fOn = (stepTimer && stepDir === +1);
-    const bOn = (stepTimer && stepDir === -1);
+    const fOn = (stepLoopRunning && stepDir === +1);
+    const bOn = (stepLoopRunning && stepDir === -1);
 
     stepPlay.textContent = fOn ? `⏱ ▶ コマ送り（${r}コマ/秒）ON` : `▶ コマ送り（${r}コマ/秒）`;
     stepPlayBack.textContent = bOn ? `⏱ ◀ コマ戻し（${r}コマ/秒）ON` : `◀ コマ戻し（${r}コマ/秒）`;
   }
 
   function stopStepPlay(){
-    if(stepTimer){
-      clearInterval(stepTimer);
-      stepTimer = null;
-    }
+    // 非同期ループを止める
+    stepLoopToken++;
+    stepLoopRunning = false;
     updateStepPlayLabel();
   }
 
-  function startStepPlay(dir){
-    // すでに再生中なら一旦止めて方向を切替
-    if(stepTimer){
-      clearInterval(stepTimer);
-      stepTimer = null;
+  function sleep(ms){
+    return new Promise(r => setTimeout(r, ms));
+  }
+
+  async function runStepLoop(localToken){
+    stepLoopRunning = true;
+    updateStepPlayLabel();
+
+    while(stepLoopToken === localToken){
+      video.pause();
+
+      const r = getStepRate();
+      const interval = Math.max(66, Math.round(1000 / r)); // 最低66ms（≈15fps）で安定させる
+      const t0 = performance.now();
+
+      // 1ステップが終わるのを待ってから次へ（重なり防止）
+      await stepAdjacent(stepDir, true);
+
+      const elapsed = performance.now() - t0;
+      const wait = Math.max(0, interval - elapsed);
+
+      if(wait > 0) await sleep(wait);
+      else await sleep(0);
     }
+  }
+
+  function startStepPlay(dir){
     stepDir = dir;
     video.pause();
 
-    const r = getStepRate();                 // 1秒に進めるコマ数
-    const interval = Math.max(16, Math.round(1000 / r)); // 安全側（極端に短い間隔は抑制）
-    stepTimer = setInterval(() => stepAdjacent(stepDir, true), interval);
-    updateStepPlayLabel();
+    const token = ++stepLoopToken;
+
+    if(stepLoopRunning){
+      updateStepPlayLabel();
+      return;
+    }
+    runStepLoop(token);
   }
 
   async function stepAdjacent(direction, fromAuto = false){
@@ -1253,13 +1277,7 @@
   // ---- Events
   fpsSel.addEventListener("change", () => { recomputeTimeScale(); updateCurrentSummary(); });
   stepRate.addEventListener("change", () => {
-    // 再生中なら速度を切り替えて継続（方向は維持）
-    if(stepTimer){
-      clearInterval(stepTimer);
-      const r = getStepRate();
-      const interval = Math.max(16, Math.round(1000 / r));
-      stepTimer = setInterval(() => stepAdjacent(stepDir, true), interval);
-    }
+    // ループは毎回getStepRate()を見るので再起動不要
     updateStepPlayLabel();
   });
   timeScaleOn.addEventListener("change", () => { updateTimeScaleUI(); updateCurrentSummary(); renderMeasures(); });
@@ -1296,7 +1314,7 @@
 
   stepPlay.addEventListener("click", () => {
     // 同じ方向ならトグル、逆方向なら切替
-    if(stepTimer && stepDir === +1){
+    if(stepLoopRunning && stepDir === +1){
       stopStepPlay();
       return;
     }
@@ -1304,7 +1322,7 @@
   });
 
   stepPlayBack.addEventListener("click", () => {
-    if(stepTimer && stepDir === -1){
+    if(stepLoopRunning && stepDir === -1){
       stopStepPlay();
       return;
     }
