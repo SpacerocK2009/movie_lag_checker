@@ -243,6 +243,19 @@
             <option>24</option><option>30</option><option>60</option><option>120</option><option selected>240</option>
           </select>
         </div>
+        <div class="pill">
+          <label for="stepRate">コマ送り速度</label>
+          <select id="stepRate">
+            <option value="1" selected>1 コマ/秒</option>
+            <option value="2">2 コマ/秒</option>
+            <option value="3">3 コマ/秒</option>
+            <option value="4">4 コマ/秒</option>
+            <option value="5">5 コマ/秒</option>
+            <option value="10">10 コマ/秒</option>
+            <option value="15">15 コマ/秒</option>
+          </select>
+        </div>
+
 
         <div class="pill" title="iPhoneのスローモ動画が60fps相当のタイムラインとして扱われる場合、ここをONにすると結果を補正できます（Δms中央値から自動推定）">
           <label for="timeScaleOn">タイム補正</label>
@@ -299,7 +312,8 @@
           <div class="bar">
             <button id="toStart">⏮ 先頭</button>
             <button id="stepBack">◀ 1コマ戻る</button>
-            <button id="stepPlay" class="accent">▶ 1秒に1コマ</button>
+            <button id="stepPlayBack" class="accent">◀ コマ戻し（1コマ/秒）</button>
+            <button id="stepPlay" class="accent">▶ コマ送り（1コマ/秒）</button>
             <button id="pauseBtn">⏸ 停止</button>
             <button id="stepFwd">1コマ進む ▶</button>
             <button id="toEnd">末尾 ⏭</button>
@@ -376,7 +390,7 @@
                 iPhoneの高fps/スローモ動画は「タイムラインが60fps相当に解釈される」ことがあり、その場合 mediaTime/currentTime で測る差分が約4倍になることがあります。<br/>
                 このページは <b>mediaTime（秒）で記録</b>し、差分は (display - input) * 1000 で算出します。<br/>
                 さらに、コマ送りで観測した Δms の<b>中央値</b>から「実効fps」を推定し、参考FPS（プルダウン）に合わせて<b>補正係数</b>を自動推定できます（タイム補正ON）。<br/>
-                ショートカット: ←/→=コマ送り　I=入力記録　O=反映記録　J/K=前/次マーカー　Space=1秒に1コマON/OFF
+                ショートカット: ←/→=コマ送り　I=入力記録　O=反映記録　J/K=前/次マーカー　Space=コマ送りON/OFF
               </div>
             </div>
           </div>
@@ -437,6 +451,7 @@
   const focusRectB = $("focusRectB");
 
   const fpsSel = $("fps");
+  const stepRate = $("stepRate");
   const timeScaleOn = $("timeScaleOn");
   const timeScaleLabel = $("timeScaleLabel");
 
@@ -478,6 +493,7 @@
   const stepBack = $("stepBack");
   const stepFwd = $("stepFwd");
   const stepPlay = $("stepPlay");
+  const stepPlayBack = $("stepPlayBack");
   const pauseBtn = $("pauseBtn");
 
   const mtNow = $("mtNow");
@@ -515,6 +531,7 @@
   let curCurrentTime = null;
 
   let stepTimer = null;
+  let stepDir = +1; // +1: forward, -1: backward
   let busy = false;
 
   let focusA = { x: 0, y: 0, size: 220 };
@@ -541,6 +558,11 @@
   // Utils
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const getFpsRef = () => Number(fpsSel.value || 240);
+
+  const getStepRate = () => {
+    const v = Number(stepRate?.value || 1);
+    return (Number.isFinite(v) && v > 0) ? v : 1;
+  };
 
   function fmtTime(sec){
     if(sec == null || !Number.isFinite(sec)) return "—";
@@ -604,7 +626,7 @@
 
   function enableControls(on){
     const btns = [
-      toStart,toEnd,stepBack,stepFwd,stepPlay,pauseBtn,seek,
+      toStart,toEnd,stepBack,stepFwd,stepPlayBack,stepPlay,pauseBtn,seek,stepRate,
       markInput,markOutput,clearCurrent,prevMarker,nextMarker,copyCurrent,resetVfr
     ];
     btns.forEach(b => b.disabled = !on);
@@ -923,12 +945,36 @@
   }
 
   // ---- step play
+  function updateStepPlayLabel(){
+    const r = getStepRate();
+    const fOn = (stepTimer && stepDir === +1);
+    const bOn = (stepTimer && stepDir === -1);
+
+    stepPlay.textContent = fOn ? `⏱ ▶ コマ送り（${r}コマ/秒）ON` : `▶ コマ送り（${r}コマ/秒）`;
+    stepPlayBack.textContent = bOn ? `⏱ ◀ コマ戻し（${r}コマ/秒）ON` : `◀ コマ戻し（${r}コマ/秒）`;
+  }
+
   function stopStepPlay(){
     if(stepTimer){
       clearInterval(stepTimer);
       stepTimer = null;
     }
-    stepPlay.textContent = "▶ 1秒に1コマ";
+    updateStepPlayLabel();
+  }
+
+  function startStepPlay(dir){
+    // すでに再生中なら一旦止めて方向を切替
+    if(stepTimer){
+      clearInterval(stepTimer);
+      stepTimer = null;
+    }
+    stepDir = dir;
+    video.pause();
+
+    const r = getStepRate();                 // 1秒に進めるコマ数
+    const interval = Math.max(16, Math.round(1000 / r)); // 安全側（極端に短い間隔は抑制）
+    stepTimer = setInterval(() => stepAdjacent(stepDir, true), interval);
+    updateStepPlayLabel();
   }
 
   async function stepAdjacent(direction, fromAuto = false){
@@ -1160,6 +1206,16 @@
 
   // ---- Events
   fpsSel.addEventListener("change", () => { recomputeTimeScale(); updateCurrentSummary(); });
+  stepRate.addEventListener("change", () => {
+    // 再生中なら速度を切り替えて継続（方向は維持）
+    if(stepTimer){
+      clearInterval(stepTimer);
+      const r = getStepRate();
+      const interval = Math.max(16, Math.round(1000 / r));
+      stepTimer = setInterval(() => stepAdjacent(stepDir, true), interval);
+    }
+    updateStepPlayLabel();
+  });
   timeScaleOn.addEventListener("change", () => { updateTimeScaleUI(); updateCurrentSummary(); renderMeasures(); });
 
   zoom.addEventListener("input", () => updateStageTransform());
@@ -1193,13 +1249,20 @@
   pauseBtn.addEventListener("click", () => { stopStepPlay(); video.pause(); });
 
   stepPlay.addEventListener("click", () => {
-    if(stepTimer){
+    // 同じ方向ならトグル、逆方向なら切替
+    if(stepTimer && stepDir === +1){
       stopStepPlay();
       return;
     }
-    stepPlay.textContent = "⏱ 1秒に1コマ（ON）";
-    video.pause();
-    stepTimer = setInterval(() => stepAdjacent(+1, true), 1000);
+    startStepPlay(+1);
+  });
+
+  stepPlayBack.addEventListener("click", () => {
+    if(stepTimer && stepDir === -1){
+      stopStepPlay();
+      return;
+    }
+    startStepPlay(-1);
   });
 
   seek.addEventListener("input", async () => {
