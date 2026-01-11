@@ -362,7 +362,7 @@
                   <span id="vfrDisp" class="mono">—</span>
                 </div>
                 <div class="pill">
-                  <label>中央値Δms</label>
+                  <label>補正基準Δms</label>
                   <span id="vfrMedianDisp" class="mono">—</span>
                 </div>
                 <div class="pill">
@@ -584,19 +584,64 @@
     const m = Math.floor(a.length/2);
     return (a.length % 2) ? a[m] : (a[m-1] + a[m]) / 2;
   }
+  function percentileOf(arr, p){
+    if(!arr || arr.length === 0) return NaN;
+    const a = arr.slice().sort((x,y)=>x-y);
+    const clamped = Math.max(0, Math.min(1, p));
+    const pos = (a.length - 1) * clamped;
+    const lo = Math.floor(pos);
+    const hi = Math.ceil(pos);
+    if(lo === hi) return a[lo];
+    const t = pos - lo;
+    return a[lo] * (1 - t) + a[hi] * t;
+  }
+
+  function snapEffFps(effFpsRaw, fpsRef){
+    // iPhoneスローモ等の「よくある段階」にスナップして、コマ飛びで中央値がズレても補正が暴れないようにする
+    const candidates = [];
+    const divs = [1,2,3,4,5,6,8,10,12,15,16];
+    for(const d of divs){
+      candidates.push(fpsRef / d);
+    }
+    // 保険として一般的な値も追加
+    [240,120,60,30,24].forEach(v => candidates.push(v));
+
+    const uniq = Array.from(new Set(candidates.filter(v => Number.isFinite(v) && v > 1))).sort((a,b)=>a-b);
+    let best = { fps: effFpsRaw, rel: Infinity };
+    for(const c of uniq){
+      const rel = Math.abs(c - effFpsRaw) / c;
+      if(rel < best.rel) best = { fps: c, rel };
+    }
+    // 12%以内ならスナップ採用（外れ値はそのまま）
+    if(best.rel <= 0.12) return best.fps;
+    return effFpsRaw;
+  }
+
+
 
   function recomputeTimeScale(){
-    const recent = deltaMsBuf.slice(-60);
-    const typical = medianOf(recent);
-    vfrMedian = typical;
-    vfrEffFps = (Number.isFinite(typical) && typical > 0) ? (1000 / typical) : NaN;
+    // ★ポイント:
+    //  - コマ送り（seek）では、ブラウザ都合で 1回の操作で2コマ/3コマ飛ぶことがある
+    //  - その場合「中央値Δms」を基準にすると補正係数が 0.5 / 0.125 のように狂いやすい
+    //  - そこで「低位（p10）のΔms」を “1コマ相当の基準” とみなし、補正はそれで推定する
+    const recent = deltaMsBuf.slice(-120);
+    const med = medianOf(recent);
 
+    // 低位パーセンタイル（1コマの最小刻みを拾う狙い）
+    const base = percentileOf(recent, 0.10);
+
+    vfrMedian = med;
+
+    // 推定fpsは「補正基準Δms」から算出（コマ飛び耐性）
+    const effRaw = (Number.isFinite(base) && base > 0) ? (1000 / base) : NaN;
+    vfrEffFps = Number.isFinite(effRaw) ? snapEffFps(effRaw, getFpsRef()) : NaN;
+
+    // 補正係数 = (idealFrameMs / baseDeltaMs) = (effFps / refFps)
     let scale = 1.0;
-    if(deltaMsBuf.length >= 6 && Number.isFinite(typical) && typical > 0){
-      const ideal = 1000 / getFpsRef();
-      scale = ideal / typical;
+    if(deltaMsBuf.length >= 8 && Number.isFinite(vfrEffFps) && vfrEffFps > 0){
+      scale = vfrEffFps / getFpsRef();
       if(!Number.isFinite(scale) || scale <= 0) scale = 1.0;
-      if(scale < 0.05 || scale > 20) scale = 1.0; // safety
+      if(scale < 0.02 || scale > 20) scale = 1.0;
     }
     timeScale = scale;
     updateTimeScaleUI();
@@ -734,8 +779,9 @@
       vfrDisp.textContent = `min ${vfr.min.toFixed(2)} / max ${vfr.max.toFixed(2)} / avg ${avg.toFixed(2)} ms (n=${vfr.n})`;
     }
 
-    if(Number.isFinite(vfrMedian) && vfr.n >= 6){
-      vfrMedianDisp.textContent = `${vfrMedian.toFixed(2)} ms`;
+    if(Number.isFinite(vfrEffFps) && vfr.n >= 8){
+      const baseMs = 1000 / vfrEffFps;
+      vfrMedianDisp.textContent = `${baseMs.toFixed(2)} ms`;
       vfrFpsDisp.textContent = `${vfrEffFps.toFixed(2)} fps`;
     }else if(vfr.n > 0){
       vfrMedianDisp.textContent = "学習中";
@@ -1328,7 +1374,7 @@ displayTime(mediaTime): ${outT != null ? fmtTime(outT) : "—"}
 deltaMs(raw): ${rawDeltaMs != null ? rawDeltaMs.toFixed(2) : "—"} ms
 deltaMs(shown): ${corrDeltaMs != null ? corrDeltaMs.toFixed(2) : "—"} ms
 timeScale: ${scaleUsed != null ? "x"+scaleUsed.toFixed(3) : "—"} (${timeScaleOn.checked ? "ON" : "OFF"})
-vfrMedian: ${Number.isFinite(vfrMedian) ? vfrMedian.toFixed(2)+" ms" : "—"} / estFps: ${Number.isFinite(vfrEffFps) ? vfrEffFps.toFixed(2) : "—"} fps
+vfrBase: ${Number.isFinite(vfrMedian) ? vfrMedian.toFixed(2)+" ms" : "—"} / estFps: ${Number.isFinite(vfrEffFps) ? vfrEffFps.toFixed(2) : "—"} fps
 refFPS: ${getFpsRef()}`;
 
     try{
